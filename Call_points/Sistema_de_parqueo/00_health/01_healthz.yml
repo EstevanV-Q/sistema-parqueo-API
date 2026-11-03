@@ -1,0 +1,25 @@
+info:
+  name: "Healthz"
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: "http://localhost:8080/healthz"
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("servicio vivo", function () {
+          expect([200]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Liveness probe. No requiere autenticación.

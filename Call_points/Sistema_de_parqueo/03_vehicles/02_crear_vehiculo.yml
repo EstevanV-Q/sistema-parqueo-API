@@ -1,0 +1,41 @@
+info:
+  name: "Crear vehículo"
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: "http://localhost:8080/api/v1/vehicles"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+  headers:
+    - name: "Content-Type"
+      value: "application/json"
+  body:
+    type: json
+    data: |-
+      {
+        "plate_raw": "TST-{{$timestamp}}",
+        "type_id": "{{vehicleTypeId}}"
+      }
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 201 && res.body) {
+          bru.setVar("testVehicleId", res.body.ID);
+          bru.setVar("testVehiclePlate", res.body.PlateNormalized);
+        }
+    - type: tests
+      code: |-
+        test("vehículo creado", function () {
+          expect([201]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

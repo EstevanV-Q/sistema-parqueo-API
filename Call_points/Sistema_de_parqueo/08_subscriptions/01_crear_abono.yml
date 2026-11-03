@@ -1,0 +1,55 @@
+info:
+  name: "Crear abono"
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "http://localhost:8080/api/v1/subscriptions"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+  headers:
+    - name: "Content-Type"
+      value: "application/json"
+  body:
+    type: json
+    data: |-
+      {
+        "customer_id": "{{customerId}}",
+        "vehicle_id": "{{vehicleId}}",
+        "site_id": "{{siteId}}",
+        "plan_name": "Abono Bruno {{$timestamp}}",
+        "price_cents": 50000,
+        "starts_at": "{{subStartsAt}}",
+        "expires_at": "{{subExpiresAt}}"
+      }
+
+runtime:
+  scripts:
+    - type: before-request
+      code: |-
+        var now = new Date();
+        var end = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        bru.setVar("subStartsAt", now.toISOString());
+        bru.setVar("subExpiresAt", end.toISOString());
+    - type: after-response
+      code: |-
+        if (res.status === 201 && res.body) {
+          bru.setVar("subscriptionId", res.body.ID);
+          bru.setVar("testSubscriptionId", res.body.ID);
+        }
+    - type: tests
+      code: |-
+        test("abono creado", function () {
+          expect([201]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Requiere customerId, vehicleId y siteId capturados por los listados previos.

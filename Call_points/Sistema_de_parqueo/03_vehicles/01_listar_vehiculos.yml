@@ -1,0 +1,39 @@
+info:
+  name: "Listar vehículos"
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: "http://localhost:8080/api/v1/vehicles?limit=50"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        var raw = (res.body && res.body.data) ? res.body.data : res.body;
+        var list = Array.isArray(raw) ? raw : [];
+        var v = list.find(function (x) { return x.PlateNormalized === "XYZ987"; }) || list[0];
+        if (v) {
+          bru.setVar("vehicleId", v.ID);
+          bru.setVar("vehiclePlate", v.PlateNormalized);
+        }
+        var testV = list.find(function (x) { return String(x.PlateNormalized).indexOf("TST") === 0; });
+        if (testV) {
+          bru.setVar("testVehicleId", testV.ID);
+          bru.setVar("testVehiclePlate", testV.PlateNormalized);
+        }
+    - type: tests
+      code: |-
+        test("lista de vehículos", function () {
+          expect([200]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

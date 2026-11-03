@@ -1,0 +1,34 @@
+info:
+  name: "Cambiar estado de espacio (admin)"
+  type: http
+  seq: 4
+
+http:
+  method: PUT
+  url: "http://localhost:8080/api/v1/catalog/spaces/{{testSpaceId}}/status"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+  headers:
+    - name: "Content-Type"
+      value: "application/json"
+  body:
+    type: json
+    data: |-
+      {
+        "status": "reserved"
+      }
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("estado actualizado", function () {
+          expect([200]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

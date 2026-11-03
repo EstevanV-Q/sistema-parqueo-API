@@ -1,0 +1,45 @@
+info:
+  name: "Registrar dispositivo (admin)"
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "http://localhost:8080/api/v1/devices"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+  headers:
+    - name: "Content-Type"
+      value: "application/json"
+  body:
+    type: json
+    data: |-
+      {
+        "site_id": "{{siteId}}",
+        "name": "Dispositivo Bruno {{$timestamp}}",
+        "type": "barrier",
+        "api_key": "{{deviceApiKey}}"
+      }
+
+runtime:
+  scripts:
+    - type: before-request
+      code: |-
+        bru.setVar("deviceApiKey", "bruno-device-" + bru.interpolate("{{$guid}}"));
+    - type: after-response
+      code: |-
+        if (res.status === 201 && res.body) {
+          bru.setVar("deviceId", res.body.ID);
+        }
+    - type: tests
+      code: |-
+        test("dispositivo registrado", function () {
+          expect([201]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

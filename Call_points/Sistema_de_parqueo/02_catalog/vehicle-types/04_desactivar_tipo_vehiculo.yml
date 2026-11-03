@@ -1,0 +1,25 @@
+info:
+  name: "Desactivar tipo de vehículo (admin)"
+  type: http
+  seq: 4
+
+http:
+  method: DELETE
+  url: "http://localhost:8080/api/v1/catalog/vehicle-types/{{testVehicleTypeId}}"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("tipo desactivado", function () {
+          expect([204]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

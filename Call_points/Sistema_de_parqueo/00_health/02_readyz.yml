@@ -1,0 +1,25 @@
+info:
+  name: "Readyz"
+  type: http
+  seq: 2
+
+http:
+  method: GET
+  url: "http://localhost:8080/readyz"
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("servicio listo (incluye ping a MySQL)", function () {
+          expect([200]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Readiness probe. Devuelve 503 si MySQL no responde.

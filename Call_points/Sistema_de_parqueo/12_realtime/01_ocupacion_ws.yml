@@ -1,0 +1,17 @@
+info:
+  name: "Ocupación en tiempo real (WebSocket)"
+  type: websocket
+  seq: 1
+
+websocket:
+  url: "{{wsUrl}}/api/v1/ws/occupancy?site_id={{siteId}}"
+
+settings:
+  timeout: 0
+  keepAliveInterval: 0
+
+docs: |-
+  Conectar y esperar los mensajes del servidor.
+  
+  Este endpoint no exige JWT; solo filtra por site_id.
+  Requiere haber ejecutado 02_catalog/sites/01_listar_sedes.yml para tener siteId.

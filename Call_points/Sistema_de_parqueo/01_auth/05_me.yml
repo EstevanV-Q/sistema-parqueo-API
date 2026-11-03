@@ -1,0 +1,28 @@
+info:
+  name: "Usuario autenticado (me)"
+  type: http
+  seq: 5
+
+http:
+  method: GET
+  url: "http://localhost:8080/api/v1/auth/me"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("usuario autenticado", function () {
+          expect([200]).to.include(res.status);
+        });
+        test("rol admin", function () {
+          expect(res.body.role).to.equal("admin");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  GO_VERSION: "1.27"
+  GOFLAGS: -mod=vendor
+
+jobs:
+  lint:
+    name: Lint y seguridad
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
+      - name: gosec (análisis estático de seguridad)
+        uses: securego/gosec@v2.19.0
+        with:
+          args: "-fmt=sarav2 -out=gosec.sar2 ./..."
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gosec.sar2
+
+  test:
+    name: Test y cobertura
+    needs: lint
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: rootpassword
+          MYSQL_DATABASE: parking_db
+          MYSQL_USER: parking_user
+          MYSQL_PASSWORD: parking_pass
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -u root -prootpassword"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+        credentials:
+          username: root
+          password: rootpassword
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
+      - name: Ejecutar go vet
+        run: go vet ./...
+
+      - name: Ejecutar tests con cobertura
+        env:
+          DB_USER: parking_user
+          DB_PASS: parking_pass
+          DB_HOST: localhost
+          DB_PORT: 3306
+          DB_NAME: parking_db
+          JWT_SECRET: test-secret-do-not-use-in-production
+          JWT_ACCESS: 15m
+          JWT_REFRESH: 72h
+          PORT: 8080
+        run: go test ./... -coverprofile=coverage.out -covermode=atomic
+
+      - name: Publicar cobertura
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.out
+          fail_ci_if_error: false
+
+  build:
+    name: Build y Docker
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
+      - name: Build binario
+        run: go build -o bin/api ./cmd/api
+
+      - name: Verificar que compila todo (incluido migrate/seed/offline)
+        run: go build ./...
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build imagen Docker (sin publicar)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: parking-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

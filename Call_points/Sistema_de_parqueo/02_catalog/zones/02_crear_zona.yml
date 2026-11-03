@@ -1,0 +1,48 @@
+info:
+  name: Crear zona (admin)
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: http://localhost:8080/api/v1/catalog/zones
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "site_id": "{{siteId}}",
+        "name": "Zona Bruno {{$timestamp}}",
+        "type": "car",
+        "capacity": 100
+      }
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+
+runtime:
+  variables:
+    - name: siteId
+      value: "null"
+    - name: accessToken
+      value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMDFhMTlhYzE0Y2ZmNzg4ZDg2YzMyMTgzMjYzZjg4NGUiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6ImFkbWluIiwic3ViIjoiMDFhMTlhYzE0Y2ZmNzg4ZDg2YzMyMTgzMjYzZjg4NGUiLCJleHAiOjE3OTM2NzIyMzAsImlhdCI6MTc5MzY3MTMzMH0.Xx0544uVIZKepSCH9sgh1acTUYlBcWgdeA9HYhqA6qs
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 201 && res.body) {
+          bru.setVar("testZoneId", res.body.ID);
+          bru.setVar("testZoneName", res.body.Name);
+        }
+    - type: tests
+      code: |-
+        test("zona creada", function () {
+          expect([201]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

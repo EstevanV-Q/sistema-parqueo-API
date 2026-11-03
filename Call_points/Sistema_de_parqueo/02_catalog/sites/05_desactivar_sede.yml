@@ -1,0 +1,30 @@
+info:
+  name: Desactivar sede (admin)
+  type: http
+  seq: 5
+
+http:
+  method: DELETE
+  url: http://localhost:8080/api/v1/catalog/sites/{{testSiteId}}
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+
+runtime:
+  variables:
+    - name: accessToken
+      value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMDFhMTlhYzE0Y2ZmNzg4ZDg2YzMyMTgzMjYzZjg4NGUiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6ImFkbWluIiwic3ViIjoiMDFhMTlhYzE0Y2ZmNzg4ZDg2YzMyMTgzMjYzZjg4NGUiLCJleHAiOjE3OTM2NzIyMzAsImlhdCI6MTc5MzY3MTMzMH0.Xx0544uVIZKepSCH9sgh1acTUYlBcWgdeA9HYhqA6qs
+  scripts:
+    - type: tests
+      code: |-
+        test("sede desactivada", function () {
+          expect([204]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: "Soft delete: el registro queda con is_active=false."

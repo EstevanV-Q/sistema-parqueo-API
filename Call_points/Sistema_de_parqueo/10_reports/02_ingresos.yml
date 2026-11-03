@@ -1,0 +1,25 @@
+info:
+  name: "Reporte de ingresos (admin/auditor)"
+  type: http
+  seq: 2
+
+http:
+  method: GET
+  url: "http://localhost:8080/api/v1/reports/revenue?site_id={{siteId}}&from=2020-01-01&to=2030-12-31"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("ingresos consultados", function () {
+          expect([200]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

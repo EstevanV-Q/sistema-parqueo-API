@@ -1,0 +1,29 @@
+# Binarios
+/bin/
+/*.exe
+
+# Entorno
+.env
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+
+# Testing
+coverage.out
+
+# Docker
+docker-data/
+
+# Offline queue data
+data/

@@ -1,0 +1,45 @@
+info:
+  name: "Registrar pago"
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "http://localhost:8080/api/v1/payments"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+  headers:
+    - name: "Content-Type"
+      value: "application/json"
+    - name: "Idempotency-Key"
+      value: "bruno-{{$timestamp}}"
+  body:
+    type: json
+    data: |-
+      {
+        "amount_cents": 5000,
+        "currency": "COP",
+        "method": "cash",
+        "reference": "bruno-{{$timestamp}}",
+        "idempotency_key": "bruno-{{$timestamp}}"
+      }
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 201 && res.body) {
+          bru.setVar("paymentId", res.body.ID);
+        }
+    - type: tests
+      code: |-
+        test("pago registrado", function () {
+          expect([201]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

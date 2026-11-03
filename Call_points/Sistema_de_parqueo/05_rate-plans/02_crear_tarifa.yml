@@ -1,0 +1,48 @@
+info:
+  name: "Crear tarifa"
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: "http://localhost:8080/api/v1/rate-plans"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+  headers:
+    - name: "Content-Type"
+      value: "application/json"
+  body:
+    type: json
+    data: |-
+      {
+        "site_id": "{{siteId}}",
+        "name": "Tarifa Bruno {{$timestamp}}",
+        "currency": "COP",
+        "grace_minutes": 5,
+        "minimum_cents": 500,
+        "fraction_minutes": 60,
+        "cents_per_fraction": 1000,
+        "daily_cap_cents": 10000,
+        "lost_ticket_cents": 15000,
+        "vehicle_type_id": "{{vehicleTypeId}}"
+      }
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 201 && res.body) {
+          bru.setVar("testRatePlanId", res.body.ID);
+        }
+    - type: tests
+      code: |-
+        test("tarifa creada", function () {
+          expect([201]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

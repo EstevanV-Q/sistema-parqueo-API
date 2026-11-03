@@ -1,0 +1,38 @@
+info:
+  name: "Listar clientes"
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: "http://localhost:8080/api/v1/customers?limit=50"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        var raw = (res.body && res.body.data) ? res.body.data : res.body;
+        var list = Array.isArray(raw) ? raw : [];
+        var c = list.find(function (x) { return x.Document === "12345678"; }) || list[0];
+        if (c) {
+          bru.setVar("customerId", c.ID);
+          bru.setVar("customerDocument", c.Document);
+        }
+        var testC = list.find(function (x) { return String(x.Document).indexOf("BRUNO") === 0; });
+        if (testC) {
+          bru.setVar("testCustomerId", testC.ID);
+        }
+    - type: tests
+      code: |-
+        test("lista de clientes", function () {
+          expect([200]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

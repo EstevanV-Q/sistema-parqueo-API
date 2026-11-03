@@ -1,0 +1,39 @@
+info:
+  name: "Actualizar sede (admin)"
+  type: http
+  seq: 4
+
+http:
+  method: PUT
+  url: "http://localhost:8080/api/v1/catalog/sites/{{testSiteId}}"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+  headers:
+    - name: "Content-Type"
+      value: "application/json"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "Sede Bruno Actualizada",
+        "code": "{{testSiteCode}}",
+        "timezone": "America/Bogota",
+        "currency": "COP",
+        "capacity_total": 30,
+        "is_active": true
+      }
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("sede actualizada", function () {
+          expect([200]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

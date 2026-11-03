@@ -1,0 +1,25 @@
+info:
+  name: "Cancelar abono (admin/operator)"
+  type: http
+  seq: 5
+
+http:
+  method: DELETE
+  url: "http://localhost:8080/api/v1/subscriptions/{{subscriptionId}}"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("abono cancelado", function () {
+          expect([204]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

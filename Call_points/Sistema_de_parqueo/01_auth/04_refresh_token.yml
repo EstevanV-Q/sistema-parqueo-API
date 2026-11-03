@@ -1,0 +1,37 @@
+info:
+  name: "Rotar refresh token"
+  type: http
+  seq: 4
+
+http:
+  method: POST
+  url: "http://localhost:8080/api/v1/auth/refresh"
+  headers:
+    - name: "Content-Type"
+      value: "application/json"
+  body:
+    type: json
+    data: |-
+      {
+        "refresh_token": "{{refreshToken}}"
+      }
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 200 && res.body && res.body.access_token) {
+          bru.setVar("accessToken", res.body.access_token);
+          bru.setVar("refreshToken", res.body.refresh_token);
+        }
+    - type: tests
+      code: |-
+        test("refresh token rotado", function () {
+          expect([200]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

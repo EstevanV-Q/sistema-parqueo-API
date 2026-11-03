@@ -1,0 +1,13 @@
+{
+    email admin@parqueo.local
+    admin localhost:2019
+}
+
+localhost {
+    reverse_proxy api:8080
+}
+
+api.parqueo.local {
+    reverse_proxy api:8080
+    tls admin@parqueo.local
+}

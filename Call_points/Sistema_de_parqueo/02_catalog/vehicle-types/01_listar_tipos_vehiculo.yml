@@ -1,0 +1,38 @@
+info:
+  name: "Listar tipos de vehículo"
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: "http://localhost:8080/api/v1/catalog/vehicle-types"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        var list = Array.isArray(res.body) ? res.body : [];
+        var vt = list.find(function (v) { return v.Code === "car"; }) || list[0];
+        if (vt) {
+          bru.setVar("vehicleTypeId", vt.ID);
+          bru.setVar("vehicleTypeCode", vt.Code);
+        }
+        var testVt = list.find(function (v) { return String(v.Code).indexOf("BT") === 0; });
+        if (testVt) {
+          bru.setVar("testVehicleTypeId", testVt.ID);
+          bru.setVar("testVehicleTypeCode", testVt.Code);
+        }
+    - type: tests
+      code: |-
+        test("lista de tipos de vehículo", function () {
+          expect([200]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

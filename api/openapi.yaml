@@ -1,0 +1,981 @@
+openapi: 3.0.3
+info:
+  title: Sistema de Parqueo API
+  description: |
+    Backend de control de parqueo multi-sede. Maneja tickets, tarifas,
+    pagos, abonos, dispositivos (barreras simuladas), auditoría y reportes.
+    Todos los montos se expresan en centavos enteros (`int64`).
+  version: 1.0.0
+  contact:
+    name: Equipo Sistema de Parqueo
+servers:
+  - url: http://localhost:8080
+    description: Desarrollo local
+tags:
+  - name: auth
+    description: Autenticación y usuarios
+  - name: tickets
+    description: Entradas, salidas y cálculo de tarifas
+  - name: payments
+    description: Pagos y caja
+  - name: subscriptions
+    description: Abonados
+  - name: catalog
+    description: Sedes, zonas, espacios y tipos de vehículo
+  - name: vehicles
+    description: Vehículos
+  - name: customers
+    description: Clientes
+  - name: rate-plans
+    description: Tarifas
+  - name: devices
+    description: Dispositivos y barreras simuladas
+  - name: reports
+    description: Reportes operativos
+  - name: audit
+    description: Auditoría append-only
+  - name: realtime
+    description: WebSocket de ocupación
+
+paths:
+  /healthz:
+    get:
+      summary: Liveness
+      tags: [realtime]
+      responses:
+        "200": { description: Servicio vivo }
+  /readyz:
+    get:
+      summary: Readiness (incluye ping a MySQL)
+      tags: [realtime]
+      responses:
+        "200": { description: Servicio listo }
+        "503": { description: Base de datos no disponible }
+
+  /api/v1/auth/login:
+    post:
+      summary: Iniciar sesión
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, example: admin }
+                password: { type: string, format: password, example: "Admin123!" }
+      responses:
+        "200":
+          description: Tokens emitidos
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { description: Demasiados intentos }
+  /api/v1/auth/refresh:
+    post:
+      summary: Rotar refresh token
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        "200":
+          description: Nuevo par de tokens
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/v1/auth/logout:
+    post:
+      summary: Revocar refresh token
+      tags: [auth]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token: { type: string }
+      responses:
+        "200": { description: Sesión cerrada }
+  /api/v1/auth/me:
+    get:
+      summary: Usuario autenticado
+      tags: [auth]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Datos del usuario
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/v1/auth/register:
+    post:
+      summary: Crear usuario (solo admin)
+      tags: [auth]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, email, password, role]
+              properties:
+                username: { type: string }
+                email: { type: string, format: email }
+                password: { type: string, format: password, minLength: 8 }
+                role: { type: string, enum: [admin, operator, auditor] }
+                site_id: { type: string, nullable: true }
+      responses:
+        "201": { description: Usuario creado }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/tickets:
+    post:
+      summary: Registrar entrada
+      tags: [tickets]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EnterTicketRequest" }
+      responses:
+        "201":
+          description: Ticket creado
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ticket" }
+        "409": { description: Espacio ocupado o vehículo ya dentro }
+    get:
+      summary: Listar tickets de una sede
+      tags: [tickets]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/SiteID" }
+        - { name: status, in: query, schema: { type: string, enum: [open, paid, closed, cancelled, lost] } }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Offset" }
+      responses:
+        "200": { description: Lista paginada }
+  /api/v1/tickets/{id}:
+    get:
+      summary: Obtener ticket
+      tags: [tickets]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/TicketID" }]
+      responses:
+        "200":
+          description: Ticket
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ticket" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/tickets/{id}/quote:
+    post:
+      summary: Cotizar salida sin cerrar el ticket
+      tags: [tickets]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/TicketID" }]
+      responses:
+        "200":
+          description: Cotización
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Quote" }
+  /api/v1/tickets/{id}/settle:
+    post:
+      summary: Pagar y cerrar ticket
+      tags: [tickets]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/TicketID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                paid_cents: { type: integer, format: int64, minimum: 0 }
+                method: { type: string, enum: [cash, card, transfer, abonnement, waived] }
+      responses:
+        "200":
+          description: Ticket cerrado
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ticket" }
+  /api/v1/tickets/{id}/cancel:
+    post:
+      summary: Anular ticket abierto
+      tags: [tickets]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/TicketID" }]
+      responses:
+        "200": { description: Ticket anulado }
+  /api/v1/tickets/{id}/events:
+    get:
+      summary: Historial de eventos del ticket
+      tags: [tickets]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/TicketID" }]
+      responses:
+        "200": { description: Eventos }
+
+  /api/v1/payments:
+    post:
+      summary: Registrar pago
+      tags: [payments]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaymentRequest" }
+      responses:
+        "201":
+          description: Pago registrado
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Payment" }
+    get:
+      summary: Listar pagos de una sede
+      tags: [payments]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/SiteID" }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Offset" }
+      responses:
+        "200": { description: Lista paginada }
+  /api/v1/payments/{id}:
+    get:
+      summary: Obtener pago
+      tags: [payments]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Pago }
+  /api/v1/payments/{id}/refund:
+    post:
+      summary: Reembolsar o anular pago
+      tags: [payments]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, example: "Cobro indebido" }
+      responses:
+        "200":
+          description: Pago reembolsado
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Payment" }
+
+  /api/v1/subscriptions:
+    post:
+      summary: Crear abono
+      tags: [subscriptions]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SubscriptionRequest" }
+      responses:
+        "201": { description: Abono creado }
+    get:
+      summary: Listar abonos de una sede
+      tags: [subscriptions]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/SiteID" }
+        - { name: status, in: query, schema: { type: string, enum: [active, expired, cancelled] } }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Offset" }
+      responses:
+        "200": { description: Lista paginada }
+  /api/v1/subscriptions/validate:
+    get:
+      summary: Validar abono vigente
+      tags: [subscriptions]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: vehicle_id, in: query, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/SiteID" }
+      responses:
+        "200": { description: Abono vigente }
+        "404": { description: Sin abono vigente }
+  /api/v1/subscriptions/{id}:
+    get:
+      summary: Obtener abono
+      tags: [subscriptions]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Abono }
+    delete:
+      summary: Cancelar abono
+      tags: [subscriptions]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Cancelado }
+
+  /api/v1/vehicles:
+    post:
+      summary: Registrar vehículo
+      tags: [vehicles]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VehicleRequest" }
+      responses:
+        "201": { description: Vehículo creado }
+    get:
+      summary: Listar vehículos
+      tags: [vehicles]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: customer_id, in: query, schema: { type: string } }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Offset" }
+      responses:
+        "200": { description: Lista paginada }
+  /api/v1/vehicles/{id}:
+    get:
+      summary: Obtener vehículo
+      tags: [vehicles]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Vehículo }
+  /api/v1/vehicles/plate/{plate}:
+    get:
+      summary: Buscar vehículo por placa
+      tags: [vehicles]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: plate, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Vehículo }
+
+  /api/v1/customers:
+    post:
+      summary: Registrar cliente
+      tags: [customers]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CustomerRequest" }
+      responses:
+        "201": { description: Cliente creado }
+    get:
+      summary: Listar clientes
+      tags: [customers]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Offset" }
+      responses:
+        "200": { description: Lista paginada }
+  /api/v1/customers/{id}:
+    get:
+      summary: Obtener cliente
+      tags: [customers]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Cliente }
+
+  /api/v1/rate-plans:
+    post:
+      summary: Crear tarifa
+      tags: [rate-plans]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RatePlanRequest" }
+      responses:
+        "201": { description: Tarifa creada }
+    get:
+      summary: Listar tarifas de una sede
+      tags: [rate-plans]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/SiteID" }
+      responses:
+        "200": { description: Tarifas }
+  /api/v1/rate-plans/{id}:
+    get:
+      summary: Obtener tarifa
+      tags: [rate-plans]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Tarifa }
+    delete:
+      summary: Desactivar tarifa
+      tags: [rate-plans]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Desactivada }
+
+  /api/v1/catalog/sites:
+    post:
+      summary: Crear sede (admin)
+      tags: [catalog]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SiteRequest" }
+      responses:
+        "201": { description: Sede creada }
+    get:
+      summary: Listar sedes
+      tags: [catalog]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: Sedes }
+  /api/v1/catalog/sites/{id}:
+    get:
+      summary: Obtener sede
+      tags: [catalog]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Sede }
+    put:
+      summary: Actualizar sede (admin)
+      tags: [catalog]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SiteRequest" }
+      responses:
+        "200": { description: Sede actualizada }
+    delete:
+      summary: Desactivar sede (admin)
+      tags: [catalog]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Desactivada }
+  /api/v1/catalog/zones:
+    post:
+      summary: Crear zona
+      tags: [catalog]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ZoneRequest" }
+      responses:
+        "201": { description: Zona creada }
+    get:
+      summary: Listar zonas de una sede
+      tags: [catalog]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/SiteID" }
+      responses:
+        "200": { description: Zonas }
+  /api/v1/catalog/zones/{id}:
+    put:
+      summary: Actualizar zona
+      tags: [catalog]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ZoneRequest" }
+      responses:
+        "200": { description: Zona actualizada }
+    delete:
+      summary: Desactivar zona
+      tags: [catalog]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Desactivada }
+  /api/v1/catalog/spaces:
+    post:
+      summary: Crear espacio
+      tags: [catalog]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpaceRequest" }
+      responses:
+        "201": { description: Espacio creado }
+    get:
+      summary: Listar espacios de una zona
+      tags: [catalog]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: zone_id, in: query, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Offset" }
+      responses:
+        "200": { description: Espacios }
+  /api/v1/catalog/spaces/{id}:
+    put:
+      summary: Actualizar espacio
+      tags: [catalog]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpaceRequest" }
+      responses:
+        "200": { description: Espacio actualizado }
+    delete:
+      summary: Desactivar espacio
+      tags: [catalog]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Desactivado }
+  /api/v1/catalog/spaces/{id}/status:
+    put:
+      summary: Cambiar estado de espacio
+      tags: [catalog]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [free, occupied, reserved, disabled] }
+      responses:
+        "200": { description: Estado actualizado }
+  /api/v1/catalog/vehicle-types:
+    post:
+      summary: Crear tipo de vehículo
+      tags: [catalog]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VehicleTypeRequest" }
+      responses:
+        "201": { description: Tipo creado }
+    get:
+      summary: Listar tipos de vehículo
+      tags: [catalog]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: Tipos }
+  /api/v1/catalog/vehicle-types/{id}:
+    put:
+      summary: Actualizar tipo de vehículo
+      tags: [catalog]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VehicleTypeRequest" }
+      responses:
+        "200": { description: Tipo actualizado }
+    delete:
+      summary: Desactivar tipo de vehículo
+      tags: [catalog]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Desactivado }
+
+  /api/v1/devices:
+    post:
+      summary: Registrar dispositivo (admin)
+      tags: [devices]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [site_id, name, type, api_key]
+              properties:
+                site_id: { type: string }
+                name: { type: string }
+                type: { type: string, enum: [barrier, lpr, rfid, printer] }
+                api_key: { type: string, minLength: 16, description: Se guarda solo su hash SHA-256 }
+      responses:
+        "201": { description: Dispositivo creado }
+    get:
+      summary: Listar dispositivos de una sede
+      tags: [devices]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/SiteID" }
+      responses:
+        "200": { description: Dispositivos }
+  /api/v1/devices/events:
+    post:
+      summary: Procesar evento de dispositivo (autenticado por X-Device-Key)
+      tags: [devices]
+      parameters:
+        - name: X-Device-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event_id, event_type]
+              properties:
+                event_id: { type: string, description: Clave de idempotencia del evento }
+                event_type: { type: string, enum: [entry_detected, exit_detected, heartbeat, command_ack] }
+                plate_normalized: { type: string }
+      responses:
+        "200":
+          description: Evento procesado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event: { $ref: "#/components/schemas/DeviceEvent" }
+                  command: { type: string, enum: [allow, deny] }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/reports/occupancy:
+    get:
+      summary: Ocupación por sede
+      tags: [reports]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/SiteID" }
+      responses:
+        "200": { description: Ocupación }
+  /api/v1/reports/revenue:
+    get:
+      summary: Ingresos diarios
+      tags: [reports]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/SiteID" }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+      responses:
+        "200": { description: Ingresos }
+  /api/v1/reports/cash-daily:
+    get:
+      summary: Caja diaria por método de pago
+      tags: [reports]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/SiteID" }
+        - { name: date, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        "200": { description: Caja }
+
+  /api/v1/audit:
+    get:
+      summary: Consultar auditoría (admin/auditor)
+      tags: [audit]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: entity_type, in: query, schema: { type: string } }
+        - { name: entity_id, in: query, schema: { type: string } }
+        - { name: user_id, in: query, schema: { type: string } }
+        - { name: action, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Offset" }
+      responses:
+        "200": { description: Registros de auditoría }
+
+  /api/v1/ws/occupancy:
+    get:
+      summary: WebSocket de ocupación por sede
+      tags: [realtime]
+      parameters:
+        - { $ref: "#/components/parameters/SiteID" }
+      responses:
+        "101": { description: Cambio de protocolo a WebSocket }
+        "400": { description: site_id requerido }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    SiteID:
+      name: site_id
+      in: query
+      required: true
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Offset:
+      name: offset
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    TicketID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+  responses:
+    Unauthorized:
+      description: No autenticado o token inválido
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Sin permisos
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Recurso no encontrado
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      properties:
+        code: { type: string, example: INVALID_INPUT }
+        message: { type: string }
+        details: { type: object, nullable: true }
+    TokenResponse:
+      type: object
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        token_type: { type: string, example: Bearer }
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        username: { type: string }
+        email: { type: string }
+        role: { type: string, enum: [admin, operator, auditor] }
+        site_id: { type: string, nullable: true }
+        active: { type: boolean }
+    Ticket:
+      type: object
+      properties:
+        id: { type: string }
+        site_id: { type: string }
+        zone_id: { type: string, nullable: true }
+        space_id: { type: string, nullable: true }
+        vehicle_id: { type: string, nullable: true }
+        plate_normalized: { type: string }
+        plate_raw: { type: string }
+        type_id: { type: string }
+        rate_plan_id: { type: string, nullable: true }
+        entry_at: { type: string, format: date-time }
+        exit_at: { type: string, format: date-time, nullable: true }
+        status: { type: string, enum: [open, paid, closed, cancelled, lost] }
+        total_cents: { type: integer, format: int64 }
+        paid_cents: { type: integer, format: int64 }
+        is_lost: { type: boolean }
+    EnterTicketRequest:
+      type: object
+      required: [site_id, plate_normalized, type_id]
+      properties:
+        site_id: { type: string }
+        zone_id: { type: string }
+        space_id: { type: string }
+        vehicle_id: { type: string }
+        plate_normalized: { type: string }
+        plate_raw: { type: string }
+        type_id: { type: string }
+        rate_plan_id: { type: string }
+    Quote:
+      type: object
+      properties:
+        ticket_id: { type: string }
+        minutes: { type: integer }
+        billable_minutes: { type: integer }
+        total_cents: { type: integer, format: int64 }
+        breakdown: { type: object }
+    PaymentRequest:
+      type: object
+      required: [amount_cents]
+      properties:
+        ticket_id: { type: string, nullable: true }
+        subscription_id: { type: string, nullable: true }
+        amount_cents: { type: integer, format: int64 }
+        currency: { type: string, default: COP }
+        method: { type: string, enum: [cash, card, transfer, abonnement, waived] }
+        reference: { type: string }
+        cashier_user_id: { type: string }
+        idempotency_key: { type: string }
+    Payment:
+      type: object
+      properties:
+        id: { type: string }
+        ticket_id: { type: string, nullable: true }
+        subscription_id: { type: string, nullable: true }
+        amount_cents: { type: integer, format: int64 }
+        currency: { type: string }
+        method: { type: string }
+        status: { type: string }
+        reference: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+    SubscriptionRequest:
+      type: object
+      required: [customer_id, vehicle_id, site_id, plan_name, starts_at, expires_at]
+      properties:
+        customer_id: { type: string }
+        vehicle_id: { type: string }
+        site_id: { type: string }
+        plan_name: { type: string }
+        price_cents: { type: integer, format: int64 }
+        starts_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+    VehicleRequest:
+      type: object
+      required: [type_id]
+      properties:
+        plate_normalized: { type: string }
+        plate_raw: { type: string }
+        type_id: { type: string }
+        customer_id: { type: string, nullable: true }
+    CustomerRequest:
+      type: object
+      required: [document, name]
+      properties:
+        document: { type: string }
+        name: { type: string }
+        phone: { type: string, nullable: true }
+        email: { type: string, nullable: true }
+    RatePlanRequest:
+      type: object
+      required: [site_id, name, fraction_minutes]
+      properties:
+        site_id: { type: string }
+        name: { type: string }
+        currency: { type: string, default: COP }
+        grace_minutes: { type: integer }
+        minimum_cents: { type: integer, format: int64 }
+        fraction_minutes: { type: integer }
+        cents_per_fraction: { type: integer, format: int64 }
+        daily_cap_cents: { type: integer, format: int64 }
+        lost_ticket_cents: { type: integer, format: int64 }
+        vehicle_type_id: { type: string, nullable: true }
+    SiteRequest:
+      type: object
+      required: [name, code, timezone, currency]
+      properties:
+        name: { type: string }
+        code: { type: string }
+        timezone: { type: string, example: America/Bogota }
+        currency: { type: string, example: COP }
+        capacity_total: { type: integer }
+        is_active: { type: boolean }
+    ZoneRequest:
+      type: object
+      required: [site_id, name, type]
+      properties:
+        site_id: { type: string }
+        name: { type: string }
+        type: { type: string, enum: [car, moto, bike, mixed] }
+        capacity: { type: integer }
+        is_active: { type: boolean }
+    SpaceRequest:
+      type: object
+      required: [zone_id, code, type]
+      properties:
+        zone_id: { type: string }
+        code: { type: string }
+        type: { type: string, enum: [car, moto, bike, mixed] }
+        status: { type: string, enum: [free, occupied, reserved, disabled] }
+        is_active: { type: boolean }
+    VehicleTypeRequest:
+      type: object
+      required: [name, code]
+      properties:
+        name: { type: string }
+        code: { type: string }
+        is_active: { type: boolean }
+    DeviceEvent:
+      type: object
+      properties:
+        id: { type: string }
+        device_id: { type: string }
+        event_id: { type: string }
+        event_type: { type: string }
+        plate_normalized: { type: string, nullable: true }
+        decision: { type: string, enum: [allow, deny] }
+        reason: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }

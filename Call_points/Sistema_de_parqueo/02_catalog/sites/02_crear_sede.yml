@@ -1,0 +1,47 @@
+info:
+  name: Crear sede (admin)
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: http://localhost:8080/api/v1/catalog/sites
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "name": "Sede Bruno {{$timestamp}}",
+        "code": "BRUNO-{{$timestamp}}",
+        "timezone": "America/Bogota",
+        "currency": "COP",
+        "capacity_total": 20
+      }
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+
+runtime:
+  variables:
+    - name: accessToken
+      value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMDFhMTlhYzE0Y2ZmNzg4ZDg2YzMyMTgzMjYzZjg4NGUiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6ImFkbWluIiwic3ViIjoiMDFhMTlhYzE0Y2ZmNzg4ZDg2YzMyMTgzMjYzZjg4NGUiLCJleHAiOjE3OTM2NzIyMzAsImlhdCI6MTc5MzY3MTMzMH0.Xx0544uVIZKepSCH9sgh1acTUYlBcWgdeA9HYhqA6qs
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 201 && res.body) {
+          bru.setVar("testSiteId", res.body.ID);
+          bru.setVar("testSiteCode", res.body.Code);
+        }
+    - type: tests
+      code: |-
+        test("sede creada", function () {
+          expect([201]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

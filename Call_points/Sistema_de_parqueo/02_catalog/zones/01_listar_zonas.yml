@@ -1,0 +1,41 @@
+info:
+  name: Listar zonas
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: http://localhost:8080/api/v1/catalog/zones?site_id={{siteId}}
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+
+runtime:
+  variables:
+    - name: accessToken
+      value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMDFhMTlhYzE0Y2ZmNzg4ZDg2YzMyMTgzMjYzZjg4NGUiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6ImFkbWluIiwic3ViIjoiMDFhMTlhYzE0Y2ZmNzg4ZDg2YzMyMTgzMjYzZjg4NGUiLCJleHAiOjE3OTM2NzIyMzAsImlhdCI6MTc5MzY3MTMzMH0.Xx0544uVIZKepSCH9sgh1acTUYlBcWgdeA9HYhqA6qs
+  scripts:
+    - type: after-response
+      code: |-
+        var list = Array.isArray(res.body) ? res.body : [];
+        var zone = list.find(function (z) { return z.Name === "General - Carros"; }) || list[0];
+        if (zone) {
+          bru.setVar("zoneId", zone.ID);
+          bru.setVar("zoneName", zone.Name);
+        }
+        var testZone = list.find(function (z) { return String(z.Name).indexOf("Zona Bruno") === 0; });
+        if (testZone) {
+          bru.setVar("testZoneId", testZone.ID);
+          bru.setVar("testZoneName", testZone.Name);
+        }
+    - type: tests
+      code: |-
+        test("lista de zonas", function () {
+          expect([200]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

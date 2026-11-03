@@ -1,0 +1,31 @@
+info:
+  name: "Listar abonos activos"
+  type: http
+  seq: 4
+
+http:
+  method: GET
+  url: "http://localhost:8080/api/v1/subscriptions?site_id={{siteId}}&status=active&limit=20"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        var list = (res.body && res.body.data) ? res.body.data : [];
+        if (list.length > 0) {
+          bru.setVar("activeSubscriptionId", list[0].ID);
+        }
+    - type: tests
+      code: |-
+        test("lista de abonos", function () {
+          expect([200]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

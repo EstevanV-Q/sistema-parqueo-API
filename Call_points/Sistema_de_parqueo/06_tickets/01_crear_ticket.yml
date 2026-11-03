@@ -1,0 +1,47 @@
+info:
+  name: "Registrar entrada (crear ticket)"
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "http://localhost:8080/api/v1/tickets"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+  headers:
+    - name: "Content-Type"
+      value: "application/json"
+  body:
+    type: json
+    data: |-
+      {
+        "site_id": "{{siteId}}",
+        "plate_normalized": "TST{{$timestamp}}",
+        "plate_raw": "TST-{{$timestamp}}",
+        "type_id": "{{vehicleTypeId}}",
+        "rate_plan_id": "{{ratePlanId}}"
+      }
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 201 && res.body) {
+          bru.setVar("ticketId", res.body.ID);
+          bru.setVar("ticketPlate", res.body.PlateNormalized);
+        }
+    - type: tests
+      code: |-
+        test("ticket creado", function () {
+          expect([201]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Usa una placa única por timestamp para evitar el error de vehículo ya adentro al repetir la prueba.

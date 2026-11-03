@@ -1,0 +1,46 @@
+info:
+  name: Listar sedes
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: http://localhost:8080/api/v1/catalog/sites
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+
+runtime:
+  variables:
+    - name: accessToken
+      value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMDFhMTlhYzE0Y2ZmNzg4ZDg2YzMyMTgzMjYzZjg4NGUiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6ImFkbWluIiwic3ViIjoiMDFhMTlhYzE0Y2ZmNzg4ZDg2YzMyMTgzMjYzZjg4NGUiLCJleHAiOjE3OTM2NzIyMzAsImlhdCI6MTc5MzY3MTMzMH0.Xx0544uVIZKepSCH9sgh1acTUYlBcWgdeA9HYhqA6qs
+  scripts:
+    - type: after-response
+      code: |-
+        var list = Array.isArray(res.body) ? res.body : [];
+        var site = list.find(function (s) { return s.Code === "PLAZA-01"; }) || list[0];
+        if (site) {
+          bru.setVar("siteId", site.ID);
+          bru.setVar("siteCode", site.Code);
+        }
+        var testSite = list.find(function (s) { return String(s.Code).indexOf("BRUNO-") === 0; });
+        if (testSite) {
+          bru.setVar("testSiteId", testSite.ID);
+          bru.setVar("testSiteCode", testSite.Code);
+        }
+    - type: tests
+      code: |-
+        test("lista de sedes", function () {
+          expect([200]).to.include(res.status);
+        });
+        test("respuesta es un array", function () {
+          expect(res.body).to.be.an("array");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: Captura siteId (PLAZA-01) y testSiteId (primera sede BRUNO-* existente).

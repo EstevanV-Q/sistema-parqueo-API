@@ -1,0 +1,232 @@
+name: Local
+variables:
+  - name: "baseUrl"
+    value: "http://localhost:8080"
+    enabled: true
+    secret: false
+    description: "URL base de la API"
+  - name: "wsUrl"
+    value: "ws://localhost:8080"
+    enabled: true
+    secret: false
+    description: "URL base para WebSocket"
+  - name: "adminUser"
+    value: "admin"
+    enabled: true
+    secret: false
+    description: "Usuario admin del seed"
+  - name: "adminPassword"
+    value: "Admin123!"
+    enabled: true
+    secret: false
+    description: "Contraseña admin del seed"
+  - name: "operatorUser"
+    value: "operador"
+    enabled: true
+    secret: false
+    description: "Usuario operator del seed"
+  - name: "operatorPassword"
+    value: "Oper123!"
+    enabled: true
+    secret: false
+    description: "Contraseña operator del seed"
+  - name: "auditorUser"
+    value: "auditor"
+    enabled: true
+    secret: false
+    description: "Usuario auditor del seed"
+  - name: "auditorPassword"
+    value: "Audit123!"
+    enabled: true
+    secret: false
+    description: "Contraseña auditor del seed"
+  - name: "deviceApiKey"
+    value: "device-api-key-001"
+    enabled: true
+    secret: false
+    description: "X-Device-Key del dispositivo demo"
+  - name: "accessToken"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Se captura en 01_auth/01_login_admin.yml"
+  - name: "refreshToken"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Se captura en 01_auth/01_login_admin.yml"
+  - name: "operatorToken"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Se captura en 01_auth/02_login_operador.yml"
+  - name: "auditorToken"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Se captura en 01_auth/03_login_auditor.yml"
+  - name: "siteId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Se captura en 02_catalog/sites/01_listar_sedes.yml"
+  - name: "zoneId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Se captura en 02_catalog/zones/01_listar_zonas.yml"
+  - name: "spaceId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Se captura en 02_catalog/spaces/01_listar_espacios.yml"
+  - name: "vehicleTypeId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Se captura en 02_catalog/vehicle-types/01_listar_tipos_vehiculo.yml"
+  - name: "ratePlanId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Se captura en 05_rate-plans/01_listar_tarifas.yml"
+  - name: "customerId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Se captura en 04_customers/01_listar_clientes.yml"
+  - name: "vehicleId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Se captura en 03_vehicles/01_listar_vehiculos.yml"
+  - name: "vehiclePlate"
+    value: "XYZ987"
+    enabled: true
+    secret: false
+    description: "Placa del vehículo demo"
+  - name: "subscriptionId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Se captura en 08_subscriptions/01_crear_abono.yml"
+  - name: "ticketId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Se captura en 06_tickets/01_crear_ticket.yml"
+  - name: "paymentId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Se captura en 07_payments/01_crear_pago.yml"
+  - name: "deviceId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Se captura en 09_devices/01_registrar_dispositivo.yml"
+  - name: "testSiteId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Sede creada por las pruebas CRUD"
+  - name: "testSiteCode"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Código de la sede de pruebas"
+  - name: "testZoneId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Zona creada por las pruebas CRUD"
+  - name: "testZoneName"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Nombre de la zona de pruebas"
+  - name: "testSpaceId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Espacio creado por las pruebas CRUD"
+  - name: "testSpaceCode"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Código del espacio de pruebas"
+  - name: "testVehicleTypeId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Tipo de vehículo creado por las pruebas"
+  - name: "testVehicleTypeCode"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Código del tipo de vehículo de pruebas"
+  - name: "testRatePlanId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Tarifa creada por las pruebas"
+  - name: "testVehicleId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Vehículo creado por las pruebas"
+  - name: "testVehiclePlate"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Placa del vehículo de pruebas"
+  - name: "testCustomerId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Cliente creado por las pruebas"
+  - name: "testSubscriptionId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Abono creado por las pruebas"
+  - name: "openTicketId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Primer ticket abierto del listado"
+  - name: "activeSubscriptionId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Primer abono activo del listado"
+  - name: "firstPaymentId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Primer pago del listado"
+  - name: "firstDeviceId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Primer dispositivo del listado"
+  - name: "newUserId"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Usuario creado por 01_auth/06_register_user.yml"
+  - name: "subStartsAt"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Calculado por 08_subscriptions/01_crear_abono.yml"
+  - name: "subExpiresAt"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Calculado por 08_subscriptions/01_crear_abono.yml"
+  - name: "today"
+    value: ""
+    enabled: true
+    secret: false
+    description: "Calculado por 10_reports/03_caja_diaria.yml"

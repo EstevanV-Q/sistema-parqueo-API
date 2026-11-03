@@ -1,0 +1,48 @@
+info:
+  name: Registrar usuario (admin)
+  type: http
+  seq: 6
+
+http:
+  method: POST
+  url: http://localhost:8080/api/v1/auth/register
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "username": "bruno_operador_{{$timestamp}}",
+        "email": "bruno_{{$timestamp}}@example.com",
+        "password": "Bruno123!",
+        "role": "operator",
+        "site_id": "{{siteId}}"
+      }
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+
+runtime:
+  variables:
+    - name: siteId
+      value: ""
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 201 && res.body && res.body.user) {
+          bru.setVar("newUserId", res.body.user.ID);
+        }
+    - type: tests
+      code: |-
+        test("usuario creado o ya existente", function () {
+          expect([201, 409]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: Si siteId está vacío, el usuario se crea sin sede asignada.

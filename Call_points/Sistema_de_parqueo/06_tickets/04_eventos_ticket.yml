@@ -1,0 +1,25 @@
+info:
+  name: "Historial de eventos del ticket"
+  type: http
+  seq: 4
+
+http:
+  method: GET
+  url: "http://localhost:8080/api/v1/tickets/{{ticketId}}/events"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("eventos del ticket", function () {
+          expect([200]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

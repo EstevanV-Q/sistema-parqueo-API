@@ -1,0 +1,39 @@
+info:
+  name: "Listar espacios"
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: "http://localhost:8080/api/v1/catalog/spaces?zone_id={{zoneId}}&limit=100"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        var raw = (res.body && res.body.data) ? res.body.data : res.body;
+        var list = Array.isArray(raw) ? raw : [];
+        var space = list.find(function (s) { return s.Code === "A-01"; }) || list[0];
+        if (space) {
+          bru.setVar("spaceId", space.ID);
+          bru.setVar("spaceCode", space.Code);
+        }
+        var testSpace = list.find(function (s) { return String(s.Code).indexOf("BRUNO-") === 0; });
+        if (testSpace) {
+          bru.setVar("testSpaceId", testSpace.ID);
+          bru.setVar("testSpaceCode", testSpace.Code);
+        }
+    - type: tests
+      code: |-
+        test("lista de espacios", function () {
+          expect([200]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

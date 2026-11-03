@@ -1,0 +1,41 @@
+info:
+  name: "Crear tipo de vehículo (admin)"
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: "http://localhost:8080/api/v1/catalog/vehicle-types"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+  headers:
+    - name: "Content-Type"
+      value: "application/json"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "Tipo Bruno {{$timestamp}}",
+        "code": "BT{{$randomInt}}"
+      }
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 201 && res.body) {
+          bru.setVar("testVehicleTypeId", res.body.ID);
+          bru.setVar("testVehicleTypeCode", res.body.Code);
+        }
+    - type: tests
+      code: |-
+        test("tipo creado o código ya existente", function () {
+          expect([201, 409]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

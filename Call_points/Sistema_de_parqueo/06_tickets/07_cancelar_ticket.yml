@@ -1,0 +1,28 @@
+info:
+  name: "Anular ticket"
+  type: http
+  seq: 7
+
+http:
+  method: POST
+  url: "http://localhost:8080/api/v1/tickets/{{ticketId}}/cancel"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("ticket anulado o ya cerrado", function () {
+          expect([200, 400]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Si ya se ejecutó 06_liquidar_ticket.yml, el ticket está cerrado y este endpoint responde 400 (ticket no abierto). Para probar la anulación, crea otro ticket y ejecuta solo este request.

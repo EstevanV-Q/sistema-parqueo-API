@@ -1,0 +1,28 @@
+info:
+  name: "Reporte de caja diaria (admin/auditor)"
+  type: http
+  seq: 3
+
+http:
+  method: GET
+  url: "http://localhost:8080/api/v1/reports/cash-daily?site_id={{siteId}}&date={{today}}"
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+
+runtime:
+  scripts:
+    - type: before-request
+      code: |-
+        bru.setVar("today", new Date().toISOString().slice(0, 10));
+    - type: tests
+      code: |-
+        test("caja diaria consultada", function () {
+          expect([200]).to.include(res.status);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
