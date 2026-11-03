@@ -3,11 +3,13 @@ services:
     image: mysql:8.0
     container_name: parking-mysql
     restart: always
+    env_file:
+      - .env
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: parking_db
-      MYSQL_USER: parking_user
-      MYSQL_PASSWORD: parking_pass
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-parking_db}
+      MYSQL_USER: ${MYSQL_USER:-parking_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-parking_pass}
     ports:
       - "3306:3306"
     volumes:
@@ -17,7 +19,7 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword" ]
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -38,6 +40,19 @@ services:
       - .env
     environment:
       DB_HOST: mysql
+      DB_USER: ${MYSQL_USER}
+      DB_PASS: ${MYSQL_PASSWORD}
+      DB_NAME: ${MYSQL_DATABASE}
+      PORT: ${PORT:-8080}
+      ENV: ${ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS: ${JWT_ACCESS:-15m}
+      JWT_REFRESH: ${JWT_REFRESH:-72h}
+      SITE_TIMEZONE: ${SITE_TIMEZONE:-America/Bogota}
+      READ_TIMEOUT: ${READ_TIMEOUT:-10s}
+      WRITE_TIMEOUT: ${WRITE_TIMEOUT:-10s}
+      IDLE_TIMEOUT: ${IDLE_TIMEOUT:-60s}
     healthcheck:
       test: [ "CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1" ]
       interval: 10s

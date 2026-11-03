@@ -18,7 +18,11 @@ func main() {
 	}
 	command := os.Args[1]
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Printf("Configuración inválida: %v\n", err)
+		os.Exit(1)
+	}
 
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4",
 		cfg.DBUser, cfg.DBPass, cfg.DBHost, cfg.DBPort, cfg.DBName)

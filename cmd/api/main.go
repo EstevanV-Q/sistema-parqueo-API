@@ -15,8 +15,8 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
-	if err := cfg.Validate(); err != nil {
+	cfg, err := config.Load()
+	if err != nil {
 		slog.Error("configuración inválida", "error", err)
 		os.Exit(1)
 	}
