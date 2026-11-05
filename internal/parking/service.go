@@ -23,8 +23,8 @@ type Service struct {
 
 func NewService(repo Repository) *Service {
 	return &Service{
-		repo:   repo,
-		now:    clock.Real,
+		repo: repo,
+		now:  clock.Real,
 	}
 }
 
@@ -140,11 +140,13 @@ func (s *Service) CreateTicket(siteID, zoneID, spaceID, vehicleID, plateNormaliz
 	}
 
 	// Registrar evento de entrada
-	s.repo.CreateEvent(&TicketEvent{
+	if err := s.repo.CreateEvent(&TicketEvent{
 		TicketID:  t.ID,
 		EventType: "entry",
 		Details:   "vehiculo_entrado",
-	})
+	}); err != nil {
+		log.Printf("parking: no se pudo registrar evento de entrada del ticket %s: %v", t.ID, err)
+	}
 
 	// Ocupar el espacio
 	if s.spaceUpdater != nil && spaceID != "" {
@@ -268,11 +270,13 @@ func (s *Service) Settle(ticketID string, paidCents int64, method string, cashie
 				return nil, err
 			}
 		}
-		s.repo.CreateEvent(&TicketEvent{
+		if err := s.repo.CreateEvent(&TicketEvent{
 			TicketID:  t.ID,
 			EventType: "exit",
 			Details:   "vehiculo_salido",
-		})
+		}); err != nil {
+			log.Printf("parking: no se pudo registrar evento de salida del ticket %s: %v", t.ID, err)
+		}
 	}
 
 	// Liberar el espacio
@@ -315,12 +319,14 @@ func (s *Service) Cancel(ticketID string, actorUserID string) (*Ticket, error) {
 	}
 
 	// Registrar evento de cancelación
-	s.repo.CreateEvent(&TicketEvent{
-		TicketID:     t.ID,
-		EventType:    "cancel",
-		ActorUserID:  &actorUserID,
-		Details:      "ticket_cancelado",
-	})
+	if err := s.repo.CreateEvent(&TicketEvent{
+		TicketID:    t.ID,
+		EventType:   "cancel",
+		ActorUserID: &actorUserID,
+		Details:     "ticket_cancelado",
+	}); err != nil {
+		log.Printf("parking: no se pudo registrar evento de cancelación del ticket %s: %v", t.ID, err)
+	}
 
 	// Liberar el espacio
 	if s.spaceUpdater != nil && t.SpaceID != nil {

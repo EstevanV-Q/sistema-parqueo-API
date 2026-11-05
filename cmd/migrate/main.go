@@ -32,14 +32,17 @@ func main() {
 		fmt.Printf("Error al abrir DB: %v\n", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if err := db.Ping(); err != nil {
 		fmt.Printf("Error al conectar a MySQL: %v\n", err)
 		os.Exit(1)
 	}
 
-	goose.SetDialect("mysql")
+	if err := goose.SetDialect("mysql"); err != nil {
+		fmt.Printf("Error al configurar dialecto: %v\n", err)
+		os.Exit(1)
+	}
 
 	switch command {
 	case "up":

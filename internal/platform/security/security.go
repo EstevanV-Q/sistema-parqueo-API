@@ -26,10 +26,10 @@ func HashPassword(password string) (string, error) {
 	hash := argon2.IDKey(
 		[]byte(password),
 		salt,
-		3,   // iterations
+		3, // iterations
 		64*1024,
-		4,   // parallelism
-		32,  // key length
+		4,  // parallelism
+		32, // key length
 	)
 
 	b64Salt := base64.RawStdEncoding.EncodeToString(salt)
@@ -59,10 +59,10 @@ func ComparePassword(password, encodedHash string) (bool, error) {
 }
 
 type hashParams struct {
-	memory   uint32
-	iterations uint32
+	memory      uint32
+	iterations  uint32
 	parallelism uint8
-	keyLen   uint32
+	keyLen      uint32
 }
 
 func decodeHash(encodedHash string) (hashParams, []byte, []byte, error) {

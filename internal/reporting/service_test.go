@@ -7,12 +7,12 @@ import (
 )
 
 type fakeRepo struct {
-	ocupacion     *Ocupacion
-	ingresos      []IngresoDiario
-	caja          *CajaResumen
-	ocupacionErr  error
-	ingresosErr   error
-	cajaErr       error
+	ocupacion    *Ocupacion
+	ingresos     []IngresoDiario
+	caja         *CajaResumen
+	ocupacionErr error
+	ingresosErr  error
+	cajaErr      error
 }
 
 func (f *fakeRepo) Ocupacion(siteID string) (*Ocupacion, error) {

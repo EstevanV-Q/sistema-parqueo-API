@@ -11,8 +11,8 @@ import (
 /* ---------- fakes ---------- */
 
 type fakeRepo struct {
-	subs       map[string]*subscriptions.Subscription
-	byVehicle  map[string]*subscriptions.Subscription
+	subs      map[string]*subscriptions.Subscription
+	byVehicle map[string]*subscriptions.Subscription
 }
 
 func (f *fakeRepo) Create(s *subscriptions.Subscription) error {

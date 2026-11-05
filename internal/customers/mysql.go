@@ -55,7 +55,7 @@ func (r *mysqlRepo) List(limit, offset int) ([]*Customer, error) {
 	if err != nil {
 		return nil, apperr.From(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var customers []*Customer
 	for rows.Next() {
 		c, err := scanCustomer(rows)

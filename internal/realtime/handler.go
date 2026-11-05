@@ -36,7 +36,7 @@ func (h *Handler) OccupancyWS(w http.ResponseWriter, r *http.Request) {
 
 	c := h.hub.Register(conn, siteID)
 	defer h.hub.Unregister(c)
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	// Bucle de lectura para mantener la conexión viva y detectar desconexiones.
 	for {

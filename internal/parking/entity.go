@@ -26,20 +26,20 @@ type Ticket struct {
 
 // Estados válidos de un ticket.
 const (
-	TicketOpen    = "open"
-	TicketPaid    = "paid"
-	TicketClosed  = "closed"
+	TicketOpen      = "open"
+	TicketPaid      = "paid"
+	TicketClosed    = "closed"
 	TicketCancelled = "cancelled"
-	TicketLost    = "lost"
+	TicketLost      = "lost"
 )
 
 // Transiciones válidas: estado actual -> estados permitidos.
 var ValidTransitions = map[string][]string{
-	TicketOpen:    {TicketPaid, TicketClosed, TicketCancelled, TicketLost},
-	TicketPaid:    {TicketClosed},
-	TicketClosed:  {},
+	TicketOpen:      {TicketPaid, TicketClosed, TicketCancelled, TicketLost},
+	TicketPaid:      {TicketClosed},
+	TicketClosed:    {},
 	TicketCancelled: {},
-	TicketLost:    {},
+	TicketLost:      {},
 }
 
 // CanTransition verifica si se puede pasar de from a to.

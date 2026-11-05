@@ -26,18 +26,18 @@ type Quote struct {
 
 // BreakdownLine explica cómo se calculó el monto.
 type BreakdownLine struct {
-	Concept   string
-	Minutes   int
-	Amount    money.Amount
+	Concept string
+	Minutes int
+	Amount  money.Amount
 }
 
 // Input contiene los datos para calcular una cotización.
 type Input struct {
-	EntryAt     time.Time
-	ExitAt      time.Time
-	Plan        Plan
-	LostTicket  bool
-	SiteTZ      *time.Location
+	EntryAt    time.Time
+	ExitAt     time.Time
+	Plan       Plan
+	LostTicket bool
+	SiteTZ     *time.Location
 }
 
 // Calculate calcula el monto a pagar según el plan tarifario.

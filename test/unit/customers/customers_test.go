@@ -3,8 +3,8 @@ package customers_test
 import (
 	"testing"
 
-	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/customers"
+	"parking-backend/internal/platform/apperr"
 )
 
 /* ---------- fakes ---------- */

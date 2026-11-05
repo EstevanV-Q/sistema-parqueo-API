@@ -4,22 +4,22 @@ import "time"
 
 // Subscription representa una suscripción/abono de un vehículo.
 type Subscription struct {
-	ID            string
-	CustomerID    string
-	VehicleID     string
-	SiteID        string
-	PlanName      string
-	PriceCents    int64
-	StartsAt      time.Time
-	ExpiresAt     time.Time
-	Status        string
-	CreatedAt     time.Time
+	ID         string
+	CustomerID string
+	VehicleID  string
+	SiteID     string
+	PlanName   string
+	PriceCents int64
+	StartsAt   time.Time
+	ExpiresAt  time.Time
+	Status     string
+	CreatedAt  time.Time
 }
 
 // Estados de suscripción.
 const (
-	SubActive   = "active"
-	SubExpired  = "expired"
+	SubActive    = "active"
+	SubExpired   = "expired"
 	SubCancelled = "cancelled"
 )
 

@@ -3,6 +3,7 @@ package middleware
 import (
 	"net"
 	"net/http"
+	"os"
 	"strings"
 
 	ctxpkg "parking-backend/internal/platform/security/ctx"
@@ -19,16 +20,22 @@ func RequestInfo(next http.Handler) http.Handler {
 	})
 }
 
+// trustProxyHeaders indica si se deben confiar en X-Real-IP / X-Forwarded-For.
+// Solo debe activarse cuando la API está detrás de un proxy inverso controlado.
+var trustProxyHeaders = os.Getenv("TRUST_PROXY_HEADERS") == "true"
+
 func clientIP(r *http.Request) string {
-	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
-		return strings.TrimSpace(realIP)
-	}
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		parts := strings.Split(forwarded, ",")
-		// Tomar el último componente añadido por el proxy inverso más cercano para evitar spoofing
-		last := strings.TrimSpace(parts[len(parts)-1])
-		if last != "" {
-			return last
+	if trustProxyHeaders {
+		if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
+			return realIP
+		}
+		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+			parts := strings.Split(forwarded, ",")
+			// Tomar el último componente añadido por el proxy inverso más cercano para evitar spoofing
+			last := strings.TrimSpace(parts[len(parts)-1])
+			if last != "" {
+				return last
+			}
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)

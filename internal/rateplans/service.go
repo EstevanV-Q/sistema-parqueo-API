@@ -1,9 +1,9 @@
 package rateplans
 
 import (
+	"parking-backend/internal/parking"
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
-	"parking-backend/internal/parking"
 	"time"
 )
 

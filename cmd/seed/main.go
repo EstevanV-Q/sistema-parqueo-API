@@ -29,7 +29,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error al abrir DB: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if err := db.Ping(); err != nil {
 		log.Fatalf("Error al conectar a MySQL: %v", err)

@@ -30,7 +30,7 @@ func TestTicketLifecycle_MySQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.Open: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if err := db.Ping(); err != nil {
 		t.Fatalf("ping MySQL: %v", err)

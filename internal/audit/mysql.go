@@ -72,7 +72,7 @@ func (r *mysqlRepo) List(f Filter, limit, offset int) ([]*Entry, error) {
 	if err != nil {
 		return nil, apperr.From(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var entries []*Entry
 	for rows.Next() {

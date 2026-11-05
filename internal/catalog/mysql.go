@@ -50,7 +50,7 @@ func (r *mysqlSiteRepo) List() ([]*Site, error) {
 	if err != nil {
 		return nil, apperr.From(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var sites []*Site
 	for rows.Next() {
 		s, err := scanSite(rows)
@@ -131,7 +131,7 @@ func (r *mysqlZoneRepo) ListBySite(siteID string) ([]*Zone, error) {
 	if err != nil {
 		return nil, apperr.From(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var zones []*Zone
 	for rows.Next() {
 		z, err := scanZone(rows)
@@ -218,7 +218,7 @@ func (r *mysqlSpaceRepo) ListByZone(zoneID string) ([]*Space, error) {
 	if err != nil {
 		return nil, apperr.From(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var spaces []*Space
 	for rows.Next() {
 		s, err := scanSpace(rows)
@@ -322,7 +322,7 @@ func (r *mysqlVehicleTypeRepo) List() ([]*VehicleType, error) {
 	if err != nil {
 		return nil, apperr.From(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var types []*VehicleType
 	for rows.Next() {
 		v, err := scanVehicleType(rows)

@@ -3,9 +3,9 @@ package subscriptions
 import (
 	"time"
 
+	"parking-backend/internal/parking"
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
-	"parking-backend/internal/parking"
 )
 
 // Service contiene la lógica de negocio de suscripciones.
@@ -23,15 +23,15 @@ func (s *Service) Create(customerID, vehicleID, siteID, planName string, priceCe
 		return nil, apperr.New(apperr.ErrInvalidInput, "cliente, vehículo, sede y plan son requeridos", 400, nil)
 	}
 	sub := &Subscription{
-		ID:           ids.UUIDv7String(),
-		CustomerID:   customerID,
-		VehicleID:    vehicleID,
-		SiteID:       siteID,
-		PlanName:     planName,
-		PriceCents:   priceCents,
-		StartsAt:     startsAt,
-		ExpiresAt:    expiresAt,
-		Status:       SubActive,
+		ID:         ids.UUIDv7String(),
+		CustomerID: customerID,
+		VehicleID:  vehicleID,
+		SiteID:     siteID,
+		PlanName:   planName,
+		PriceCents: priceCents,
+		StartsAt:   startsAt,
+		ExpiresAt:  expiresAt,
+		Status:     SubActive,
 	}
 	if err := s.repo.Create(sub); err != nil {
 		return nil, err

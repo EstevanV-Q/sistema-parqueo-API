@@ -28,7 +28,7 @@ func main() {
 		log.Error("error al iniciar la aplicación", "error", err)
 		os.Exit(1)
 	}
-	defer application.Close()
+	defer func() { _ = application.Close() }()
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

@@ -52,7 +52,7 @@ func (l *Logger) WithRequestID(ctx context.Context) *Logger {
 		for i, a := range attrs {
 			anyAttrs[i] = a
 		}
-		return &Logger{l.Logger.With(anyAttrs...)}
+		return &Logger{l.With(anyAttrs...)}
 	}
 	return l
 }

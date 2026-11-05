@@ -52,7 +52,7 @@ func (r *mysqlRepo) ListByCustomer(customerID string) ([]*Vehicle, error) {
 	if err != nil {
 		return nil, apperr.From(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var vehicles []*Vehicle
 	for rows.Next() {
 		v, err := scanVehicle(rows)
@@ -71,7 +71,7 @@ func (r *mysqlRepo) List(limit, offset int) ([]*Vehicle, error) {
 	if err != nil {
 		return nil, apperr.From(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var vehicles []*Vehicle
 	for rows.Next() {

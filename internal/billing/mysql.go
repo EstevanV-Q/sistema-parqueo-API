@@ -82,7 +82,7 @@ func (r *mysqlRepo) CajaDiaria(siteID string, date string) (*CajaDiaria, error) 
 	if err != nil {
 		return nil, apperr.From(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	byMethod := map[string]int64{}
 	var total int64
@@ -137,7 +137,7 @@ func (r *mysqlRepo) ListBySite(siteID string, from, to string, limit, offset int
 	if err != nil {
 		return nil, apperr.From(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var payments []*Payment
 	for rows.Next() {
 		p, err := scanPayment(rows)

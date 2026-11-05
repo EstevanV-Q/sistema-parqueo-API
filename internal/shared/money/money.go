@@ -16,7 +16,7 @@ const Zero Amount = 0
 // FromFloat convierte una cantidad en unidades (ej. 12.50) a centavos.
 // El redondeo es hacia el centavo más cercano.
 func FromFloat(f float64) Amount {
-	return Amount(f * 100 + 0.5)
+	return Amount(f*100 + 0.5)
 }
 
 // Float devuelve la cantidad en unidades (ej. 1250 -> 12.50).

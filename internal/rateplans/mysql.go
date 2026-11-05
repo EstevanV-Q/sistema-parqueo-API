@@ -49,7 +49,7 @@ func (r *mysqlRepo) BySite(siteID string) ([]*RatePlan, error) {
 	if err != nil {
 		return nil, apperr.From(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var plans []*RatePlan
 	for rows.Next() {
 		rp, err := scanRatePlan(rows)

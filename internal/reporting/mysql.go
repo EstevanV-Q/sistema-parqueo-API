@@ -78,7 +78,7 @@ func (r *mysqlRepo) Ingresos(siteID string, from, to string) ([]IngresoDiario, e
 	if err != nil {
 		return nil, apperr.From(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var ingresos []IngresoDiario
 	for rows.Next() {
@@ -106,7 +106,7 @@ func (r *mysqlRepo) CajaDiaria(siteID string, date string) (*CajaResumen, error)
 	if err != nil {
 		return nil, apperr.From(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	byMethod := map[string]int64{}
 	var total int64

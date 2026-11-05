@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/audit"
+	"parking-backend/internal/platform/apperr"
 )
 
 /* ---------- fakes ---------- */
@@ -103,7 +103,7 @@ func TestListAndCount(t *testing.T) {
 	if total != 2 || len(list) != 2 {
 		t.Fatalf("se esperaban 2 entradas, total=%d len=%d", total, len(list))
 	}
-	list, total, err = s.List(audit.Filter{EntityType: "ticket"}, 10, 0)
+	_, total, err = s.List(audit.Filter{EntityType: "ticket"}, 10, 0)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

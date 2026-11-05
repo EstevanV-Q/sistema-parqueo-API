@@ -50,12 +50,12 @@ type SubscriptionChecker interface {
 
 // Subscription representa un abono para validación.
 type Subscription struct {
-	ID         string
-	VehicleID  string
-	SiteID     string
-	PlanName   string
-	ExpiresAt  time.Time
-	Status     string
+	ID        string
+	VehicleID string
+	SiteID    string
+	PlanName  string
+	ExpiresAt time.Time
+	Status    string
 }
 
 // PaymentCreator registra un pago.

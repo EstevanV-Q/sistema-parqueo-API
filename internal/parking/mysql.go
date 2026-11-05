@@ -74,7 +74,7 @@ func (r *mysqlRepo) SettleTicketTx(ticketID string, exitAt time.Time, totalCents
 	if err != nil {
 		return apperr.From(err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var currentStatus string
 	ticketBin := ids.StringToBin16(ticketID)
@@ -140,7 +140,7 @@ func (r *mysqlRepo) Events(ticketID string) ([]TicketEvent, error) {
 	if err != nil {
 		return nil, apperr.From(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var events []TicketEvent
 	for rows.Next() {
 		var e TicketEvent
@@ -175,7 +175,7 @@ func (r *mysqlRepo) ListBySite(siteID string, status string, limit, offset int) 
 	if err != nil {
 		return nil, apperr.From(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var tickets []*Ticket
 	for rows.Next() {
 		t, err := scanTicket(rows)

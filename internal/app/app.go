@@ -152,7 +152,6 @@ func buildRouter(
 	r := chi.NewRouter()
 
 	r.Use(chimiddleware.RequestID)
-	r.Use(chimiddleware.RealIP)
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.Logger)
 	r.Use(platmiddleware.RequestInfo)

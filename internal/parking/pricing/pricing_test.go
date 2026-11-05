@@ -10,26 +10,26 @@ import (
 
 func TestCalculate_DentroDeGracia(t *testing.T) {
 	tests := []struct {
-		name      string
-		entry     time.Time
-		exit      time.Time
-		plan      Plan
-		wantAmt   int64
-		wantMin   int
+		name    string
+		entry   time.Time
+		exit    time.Time
+		plan    Plan
+		wantAmt int64
+		wantMin int
 	}{
 		{
-			name: "menos de gracia",
-			entry: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC),
-			exit:  time.Date(2026, 1, 1, 10, 5, 0, 0, time.UTC),
-			plan: Plan{GraceMinutes: 10, MinimumCents: 1000, FractionMinutes: 60, CentsPerFraction: 1500},
+			name:    "menos de gracia",
+			entry:   time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC),
+			exit:    time.Date(2026, 1, 1, 10, 5, 0, 0, time.UTC),
+			plan:    Plan{GraceMinutes: 10, MinimumCents: 1000, FractionMinutes: 60, CentsPerFraction: 1500},
 			wantAmt: 0,
 			wantMin: 0,
 		},
 		{
-			name: "exactamente gracia",
-			entry: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC),
-			exit:  time.Date(2026, 1, 1, 10, 10, 0, 0, time.UTC),
-			plan: Plan{GraceMinutes: 10, MinimumCents: 1000, FractionMinutes: 60, CentsPerFraction: 1500},
+			name:    "exactamente gracia",
+			entry:   time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC),
+			exit:    time.Date(2026, 1, 1, 10, 10, 0, 0, time.UTC),
+			plan:    Plan{GraceMinutes: 10, MinimumCents: 1000, FractionMinutes: 60, CentsPerFraction: 1500},
 			wantAmt: 0,
 			wantMin: 0,
 		},

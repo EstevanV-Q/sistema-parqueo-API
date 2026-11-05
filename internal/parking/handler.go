@@ -71,11 +71,11 @@ func (h *Handler) Enter(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.record(r, "ticket.entry", ticket.ID, nil, map[string]any{
-		"site_id":    ticket.SiteID,
-		"space_id":   ticket.SpaceID,
-		"plate":      ticket.PlateNormalized,
-		"status":     ticket.Status,
-		"entry_at":   ticket.EntryAt,
+		"site_id":  ticket.SiteID,
+		"space_id": ticket.SpaceID,
+		"plate":    ticket.PlateNormalized,
+		"status":   ticket.Status,
+		"entry_at": ticket.EntryAt,
 	})
 
 	httpserver.JSON(w, http.StatusCreated, ticket)

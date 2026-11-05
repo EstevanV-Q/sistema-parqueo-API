@@ -76,7 +76,7 @@ func (r *mysqlRepo) ListBySite(siteID string) ([]*Device, error) {
 	if err != nil {
 		return nil, apperr.From(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var devices []*Device
 	for rows.Next() {

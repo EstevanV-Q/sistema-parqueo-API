@@ -69,7 +69,7 @@ func (r *mysqlRepo) ListBySite(siteID string, status string, limit, offset int) 
 	if err != nil {
 		return nil, apperr.From(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var subs []*Subscription
 	for rows.Next() {
 		s, err := scanSub(rows)

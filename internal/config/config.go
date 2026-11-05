@@ -17,14 +17,14 @@ type Config struct {
 	LogLevel string
 
 	// Base de datos
-	DBUser     string
-	DBPass     string
-	DBHost     string
-	DBPort     string
-	DBName     string
-	DBMaxOpen  int
-	DBMaxIdle  int
-	DBMaxLife  time.Duration
+	DBUser    string
+	DBPass    string
+	DBHost    string
+	DBPort    string
+	DBName    string
+	DBMaxOpen int
+	DBMaxIdle int
+	DBMaxLife time.Duration
 
 	// Seguridad JWT
 	JWTSecret  string
@@ -40,7 +40,7 @@ type Config struct {
 	IdleTimeout  time.Duration
 
 	// Seed (solo entornos no productivos)
-	SeedAdminPassword   string
+	SeedAdminPassword    string
 	SeedOperatorPassword string
 	SeedAuditorPassword  string
 	SeedDeviceAPIKey     string
@@ -59,33 +59,6 @@ var requiredEnvVars = []string{
 	"DB_PASS",
 	"DB_NAME",
 	"JWT_SECRET",
-}
-
-// optional env vars con valores por defecto seguros para desarrollo
-var defaultEnvVars = map[string]string{
-	"PORT":              "8080",
-	"ENV":               "development",
-	"LOG_LEVEL":         "info",
-	"DB_HOST":           "localhost",
-	"DB_PORT":           "3306",
-	"DB_MAX_OPEN":       "25",
-	"DB_MAX_IDLE":       "25",
-	"DB_MAX_LIFE":       "5m",
-	"JWT_ACCESS":        "15m",
-	"JWT_REFRESH":       "72h",
-	"SITE_TIMEZONE":     "America/Bogota",
-	"READ_TIMEOUT":      "10s",
-	"WRITE_TIMEOUT":     "10s",
-	"IDLE_TIMEOUT":      "60s",
-	"SEED_ADMIN_PASSWORD": "Admin123!",
-	"SEED_OPERATOR_PASSWORD": "Oper123!",
-	"SEED_AUDITOR_PASSWORD": "Audit123!",
-	"SEED_DEVICE_API_KEY":   "device-api-key-001",
-	"SEED_SITE_CODE":        "PLAZA-01",
-	"SEED_SITE_NAME":        "Centro Comercial Plaza",
-	"SEED_VEHICLE_PLATE":    "XYZ987",
-	"BASE_URL":              "http://localhost:8080",
-	"WS_URL":                "ws://localhost:8080",
 }
 
 // Load lee la configuración desde el entorno y un archivo .env si existe.
@@ -113,18 +86,18 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		Port:        getEnv("PORT", "8080"),
-		Env:         env,
-		LogLevel:    getEnv("LOG_LEVEL", "info"),
+		Port:     getEnv("PORT", "8080"),
+		Env:      env,
+		LogLevel: getEnv("LOG_LEVEL", "info"),
 
-		DBUser:     getEnv("DB_USER", ""),
-		DBPass:     getEnv("DB_PASS", ""),
-		DBHost:     getEnv("DB_HOST", "localhost"),
-		DBPort:     getEnv("DB_PORT", "3306"),
-		DBName:     getEnv("DB_NAME", ""),
-		DBMaxOpen:  getEnvInt("DB_MAX_OPEN", 25),
-		DBMaxIdle:  getEnvInt("DB_MAX_IDLE", 25),
-		DBMaxLife:  getEnvDuration("DB_MAX_LIFE", "5m"),
+		DBUser:    getEnv("DB_USER", ""),
+		DBPass:    getEnv("DB_PASS", ""),
+		DBHost:    getEnv("DB_HOST", "localhost"),
+		DBPort:    getEnv("DB_PORT", "3306"),
+		DBName:    getEnv("DB_NAME", ""),
+		DBMaxOpen: getEnvInt("DB_MAX_OPEN", 25),
+		DBMaxIdle: getEnvInt("DB_MAX_IDLE", 25),
+		DBMaxLife: getEnvDuration("DB_MAX_LIFE", "5m"),
 
 		JWTSecret:  jwtSecret,
 		JWTAccess:  getEnvDuration("JWT_ACCESS", "15m"),
@@ -136,7 +109,7 @@ func Load() (*Config, error) {
 		WriteTimeout: getEnvDuration("WRITE_TIMEOUT", "10s"),
 		IdleTimeout:  getEnvDuration("IDLE_TIMEOUT", "60s"),
 
-		SeedAdminPassword:   getEnv("SEED_ADMIN_PASSWORD", "Admin123!"),
+		SeedAdminPassword:    getEnv("SEED_ADMIN_PASSWORD", "Admin123!"),
 		SeedOperatorPassword: getEnv("SEED_OPERATOR_PASSWORD", "Oper123!"),
 		SeedAuditorPassword:  getEnv("SEED_AUDITOR_PASSWORD", "Audit123!"),
 		SeedDeviceAPIKey:     getEnv("SEED_DEVICE_API_KEY", "device-api-key-001"),
