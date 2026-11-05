@@ -18,7 +18,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/api ./cmd/api
 # -------------------------------------------------
 # Etapa de ejecución (imagen mínima, sin root)
 # -------------------------------------------------
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/base-debian12:nonroot
 
 WORKDIR /
 
@@ -32,6 +32,6 @@ USER nonroot:nonroot
 EXPOSE 8080
 
 HEALTHCHECK --interval=10s --timeout=3s --retries=3 --start-period=10s \
-  CMD ["/bin/api"] || true
+  CMD wget -qO- http://localhost:8080/healthz || exit 1
 
 ENTRYPOINT ["/bin/api"]

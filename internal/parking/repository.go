@@ -17,6 +17,7 @@ type Repository interface {
 	Events(ticketID string) ([]TicketEvent, error)
 	CreateEvent(e *TicketEvent) error
 	ListBySite(siteID string, status string, limit, offset int) ([]*Ticket, error)
+	CountBySite(siteID string, status string) (int, error)
 }
 
 // RatePlanReader lee la tarifa vigente desde el módulo de tarifas.

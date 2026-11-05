@@ -187,6 +187,15 @@ func (r *mysqlRepo) ListBySite(siteID string, status string, limit, offset int) 
 	return tickets, rows.Err()
 }
 
+func (r *mysqlRepo) CountBySite(siteID string, status string) (int, error) {
+	query := `SELECT COUNT(*) FROM tickets WHERE site_id = ? AND (? = '' OR status = ?)`
+	var count int
+	if err := r.db.QueryRow(query, ids.StringToBin16(siteID), status, status).Scan(&count); err != nil {
+		return 0, apperr.From(err)
+	}
+	return count, nil
+}
+
 func scanTicket(scanner interface {
 	Scan(...any) error
 }) (*Ticket, error) {

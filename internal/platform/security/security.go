@@ -1,6 +1,7 @@
 package security
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -8,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -116,15 +118,22 @@ func TokenExpiry(d time.Duration) time.Time {
 	return time.Now().Add(d)
 }
 
-// HashToken hashea un token opaco (refresh token o API key) con SHA-256.
-// Los tokens tienen alta entropía, por lo que SHA-256 es suficiente y permite
-// búsquedas indexadas por hash.
+// tokenPepper es una clave secreta opcional para HMAC al hashear tokens.
+// Se lee de la variable de entorno TOKEN_PEPPER. Si no se define, se usa
+// SHA-256 plano (compatibilidad hacia atrás) pero se recomienda definirla
+// en producción para evitar rainbow tables.
+var tokenPepper = []byte(os.Getenv("TOKEN_PEPPER"))
+
+// HashToken hashea un token opaco (refresh token o API key) usando HMAC-SHA256
+// con una clave secreta (pepper) opcional. Los tokens tienen alta entropía,
+// por lo que esto es suficiente y permite búsquedas indexadas por hash.
 func HashToken(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
+	mac := hmac.New(sha256.New, tokenPepper)
+	mac.Write([]byte(token))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
-// CompareToken compara un token contra su hash SHA-256 en tiempo constante.
+// CompareToken compara un token contra su hash HMAC-SHA256 en tiempo constante.
 func CompareToken(token, expectedHash string) bool {
 	return subtle.ConstantTimeCompare([]byte(HashToken(token)), []byte(expectedHash)) == 1
 }

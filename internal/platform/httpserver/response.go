@@ -22,7 +22,11 @@ func JSON(w http.ResponseWriter, status int, v any) {
 }
 
 // Error escribe un error de dominio en formato JSON uniforme.
+// Si err es nil, responde 500 con código INTERNAL para evitar panic.
 func Error(w http.ResponseWriter, err error) {
+	if err == nil {
+		err = apperr.New(apperr.ErrInternal, "error interno", http.StatusInternalServerError, nil)
+	}
 	e := apperr.From(err)
 	JSON(w, e.HTTPStatus, map[string]any{
 		"code":    e.Code,

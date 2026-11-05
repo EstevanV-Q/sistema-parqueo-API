@@ -2,6 +2,7 @@ package parking
 
 import (
 	"fmt"
+	"log"
 
 	"parking-backend/internal/parking/pricing"
 	"parking-backend/internal/platform/apperr"
@@ -147,7 +148,9 @@ func (s *Service) CreateTicket(siteID, zoneID, spaceID, vehicleID, plateNormaliz
 
 	// Ocupar el espacio
 	if s.spaceUpdater != nil && spaceID != "" {
-		_ = s.spaceUpdater.UpdateStatus(spaceID, "occupied")
+		if err := s.spaceUpdater.UpdateStatus(spaceID, "occupied"); err != nil {
+			log.Printf("parking: no se pudo marcar espacio %s como ocupado: %v", spaceID, err)
+		}
 	}
 
 	s.publish(siteID, "ticket.entered", map[string]any{
@@ -274,7 +277,9 @@ func (s *Service) Settle(ticketID string, paidCents int64, method string, cashie
 
 	// Liberar el espacio
 	if s.spaceUpdater != nil && t.SpaceID != nil {
-		_ = s.spaceUpdater.UpdateStatus(*t.SpaceID, "free")
+		if err := s.spaceUpdater.UpdateStatus(*t.SpaceID, "free"); err != nil {
+			log.Printf("parking: no se pudo liberar espacio %s al liquidar ticket %s: %v", *t.SpaceID, t.ID, err)
+		}
 	}
 
 	s.publish(t.SiteID, "ticket.exited", map[string]any{
@@ -319,7 +324,9 @@ func (s *Service) Cancel(ticketID string, actorUserID string) (*Ticket, error) {
 
 	// Liberar el espacio
 	if s.spaceUpdater != nil && t.SpaceID != nil {
-		_ = s.spaceUpdater.UpdateStatus(*t.SpaceID, "free")
+		if err := s.spaceUpdater.UpdateStatus(*t.SpaceID, "free"); err != nil {
+			log.Printf("parking: no se pudo liberar espacio %s al cancelar ticket %s: %v", *t.SpaceID, t.ID, err)
+		}
 	}
 
 	s.publish(t.SiteID, "ticket.cancelled", map[string]any{
@@ -395,7 +402,9 @@ func (s *Service) AuthorizeExit(siteID, plateNormalized string) (bool, string, e
 				now := s.now()
 				_ = s.repo.Close(openTicket.ID, now, 0, 0, TicketClosed)
 				if s.spaceUpdater != nil && openTicket.SpaceID != nil {
-					_ = s.spaceUpdater.UpdateStatus(*openTicket.SpaceID, "free")
+					if err := s.spaceUpdater.UpdateStatus(*openTicket.SpaceID, "free"); err != nil {
+						log.Printf("parking: no se pudo liberar espacio %s al autorizar salida de abonado: %v", *openTicket.SpaceID, err)
+					}
 				}
 				s.publish(siteID, "ticket.exited", map[string]any{
 					"ticket_id": openTicket.ID,
@@ -432,7 +441,9 @@ func (s *Service) AuthorizeExit(siteID, plateNormalized string) (bool, string, e
 			return false, "error al cerrar ticket", err
 		}
 		if s.spaceUpdater != nil && latest.SpaceID != nil {
-			_ = s.spaceUpdater.UpdateStatus(*latest.SpaceID, "free")
+			if err := s.spaceUpdater.UpdateStatus(*latest.SpaceID, "free"); err != nil {
+				log.Printf("parking: no se pudo liberar espacio %s al cerrar ticket pagado %s: %v", *latest.SpaceID, latest.ID, err)
+			}
 		}
 		s.publish(siteID, "ticket.exited", map[string]any{
 			"ticket_id":   latest.ID,
@@ -451,7 +462,9 @@ func (s *Service) AuthorizeExit(siteID, plateNormalized string) (bool, string, e
 			now := s.now()
 			_ = s.repo.Close(latest.ID, now, 0, 0, TicketClosed)
 			if s.spaceUpdater != nil && latest.SpaceID != nil {
-				_ = s.spaceUpdater.UpdateStatus(*latest.SpaceID, "free")
+				if err := s.spaceUpdater.UpdateStatus(*latest.SpaceID, "free"); err != nil {
+					log.Printf("parking: no se pudo liberar espacio %s al autorizar salida de abonado: %v", *latest.SpaceID, err)
+				}
 			}
 			s.publish(siteID, "ticket.exited", map[string]any{
 				"ticket_id": latest.ID,

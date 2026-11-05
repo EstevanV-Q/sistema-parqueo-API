@@ -63,13 +63,28 @@ func (l *limiter) cleanup() {
 	}
 }
 
-// RateLimit limita por IP las peticiones a un handler (ventana fija).
-func RateLimit(limit int, period time.Duration) func(http.Handler) http.Handler {
+// KeyExtractor extrae la clave de rate limiting de una petición HTTP.
+// Por defecto se usa la IP del cliente, pero se puede inyectar una función
+// que use el user_id del JWT o la X-Device-Key para un control más fino.
+type KeyExtractor func(r *http.Request) string
+
+// defaultKeyExtractor usa la IP del cliente como clave.
+func defaultKeyExtractor(r *http.Request) string {
+	return clientIP(r)
+}
+
+// RateLimit limita peticiones usando una clave extraída del request.
+// Si keyExtractor es nil, se usa la IP del cliente.
+func RateLimit(limit int, period time.Duration, keyExtractor ...KeyExtractor) func(http.Handler) http.Handler {
 	l := newLimiter(limit, period)
+	extract := defaultKeyExtractor
+	if len(keyExtractor) > 0 && keyExtractor[0] != nil {
+		extract = keyExtractor[0]
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := clientIP(r)
-			if !l.allow(ip) {
+			key := extract(r)
+			if !l.allow(key) {
 				w.Header().Set("Retry-After", "60")
 				httpserver.Error(w, apperr.New(apperr.ErrTooManyRequests, "demasiadas solicitudes, intente más tarde", http.StatusTooManyRequests, nil))
 				return

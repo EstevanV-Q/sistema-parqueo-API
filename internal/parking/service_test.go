@@ -127,6 +127,16 @@ func (f *fakeRepo) ListBySite(siteID, status string, limit, offset int) ([]*Tick
 	return out, nil
 }
 
+func (f *fakeRepo) CountBySite(siteID, status string) (int, error) {
+	var n int
+	for _, t := range f.tickets {
+		if t.SiteID == siteID && (status == "" || t.Status == status) {
+			n++
+		}
+	}
+	return n, nil
+}
+
 type fakeRatePlans struct{}
 
 func (fakeRatePlans) GetRatePlan(id string) (*RatePlan, error) {

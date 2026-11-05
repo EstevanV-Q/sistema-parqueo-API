@@ -73,12 +73,48 @@ func RequireRole(allowed ...string) func(http.Handler) http.Handler {
 	}
 }
 
-// CORS agrega encabezados de acceso cruzado simples.
+// allowedOrigins contiene los orígenes permitidos. En producción debe configurarse
+// con los dominios reales del frontend. Por defecto (desarrollo) se permite localhost.
+var allowedOrigins = []string{
+	"http://localhost:3000",
+	"http://localhost:8080",
+	"https://localhost:3000",
+}
+
+// SetAllowedOrigins reemplaza la lista de orígenes permitidos. Útil para inyectar
+// dominios de producción desde la configuración de la aplicación.
+func SetAllowedOrigins(origins []string) {
+	allowedOrigins = origins
+}
+
+// originPermitido verifica si el origen de la petición está en la lista permitida.
+func originPermitido(origin string) bool {
+	for _, o := range allowedOrigins {
+		if o == origin {
+			return true
+		}
+	}
+	return false
+}
+
+// CORS agrega encabezados de acceso cruzado restringidos.
 func CORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+
+		// Encabezados de seguridad para todas las respuestas
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+
+		if origin != "" && originPermitido(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key, X-Device-Key")
+		w.Header().Set("Access-Control-Max-Age", "86400")
+
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

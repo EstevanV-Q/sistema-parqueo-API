@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"log"
 	"time"
 
 	"parking-backend/internal/config"
@@ -83,10 +84,12 @@ func (s *Service) Login(username, password string) (*User, string, string, error
 		TokenHash: security.HashToken(refreshTok),
 		ExpiresAt: refreshExp,
 	}); err != nil {
-		return nil, "", "", err
+		return nil, "", "", apperr.From(err)
 	}
 
-	_ = s.repo.UpdateLastLogin(u.ID, s.now())
+	if err := s.repo.UpdateLastLogin(u.ID, s.now()); err != nil {
+		log.Printf("auth: no se pudo actualizar last_login para usuario %s: %v", u.ID, err)
+	}
 	return u, accessTok, refreshTok, nil
 }
 

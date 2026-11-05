@@ -168,9 +168,14 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		httpserver.Error(w, err)
 		return
 	}
+	total, err := h.svc.repo.CountBySite(siteID, status)
+	if err != nil {
+		httpserver.Error(w, err)
+		return
+	}
 	httpserver.JSON(w, http.StatusOK, map[string]any{
 		"data": tickets,
-		"meta": page.Meta(0),
+		"meta": page.Meta(total),
 	})
 }
 
