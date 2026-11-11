@@ -3,6 +3,7 @@
 .env
 .env.vps
 .env.example
+.env.vps.example
 vendor/
 *.exe
 /test/
