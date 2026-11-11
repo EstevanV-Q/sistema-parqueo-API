@@ -20,6 +20,22 @@ func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
 
+func (h *Handler) checkZoneSite(r *http.Request, zoneID string) error {
+	zone, err := h.svc.GetZone(zoneID)
+	if err != nil {
+		return err
+	}
+	return middleware.CheckSiteAccess(r.Context(), zone.SiteID)
+}
+
+func (h *Handler) checkSpaceSite(r *http.Request, spaceID string) error {
+	siteID, err := h.svc.SiteIDForSpace(spaceID)
+	if err != nil {
+		return err
+	}
+	return middleware.CheckSiteAccess(r.Context(), siteID)
+}
+
 // ---- Sedes ----
 
 type siteReq struct {
@@ -152,6 +168,10 @@ func (h *Handler) ListZones(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) UpdateZone(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if err := h.checkZoneSite(r, id); err != nil {
+		httpserver.Error(w, err)
+		return
+	}
 	var req struct {
 		Name     string `json:"name" validate:"required,max=100"`
 		Type     string `json:"type" validate:"required,max=30"`
@@ -180,6 +200,10 @@ func (h *Handler) UpdateZone(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DeleteZone(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if err := h.checkZoneSite(r, id); err != nil {
+		httpserver.Error(w, err)
+		return
+	}
 	if err := h.svc.DeleteZone(id); err != nil {
 		httpserver.Error(w, err)
 		return
@@ -205,6 +229,10 @@ func (h *Handler) CreateSpace(w http.ResponseWriter, r *http.Request) {
 		httpserver.Error(w, err)
 		return
 	}
+	if err := h.checkZoneSite(r, req.ZoneID); err != nil {
+		httpserver.Error(w, err)
+		return
+	}
 	space, err := h.svc.CreateSpace(req.ZoneID, req.Code, req.Type)
 	if err != nil {
 		httpserver.Error(w, err)
@@ -217,6 +245,10 @@ func (h *Handler) ListSpaces(w http.ResponseWriter, r *http.Request) {
 	zoneID := r.URL.Query().Get("zone_id")
 	if zoneID == "" {
 		httpserver.Error(w, apperr.New(apperr.ErrInvalidInput, "zone_id requerido", http.StatusBadRequest, nil))
+		return
+	}
+	if err := h.checkZoneSite(r, zoneID); err != nil {
+		httpserver.Error(w, err)
 		return
 	}
 	spaces, err := h.svc.ListSpaces(zoneID)
@@ -233,6 +265,10 @@ func (h *Handler) ListSpaces(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) UpdateSpace(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if err := h.checkSpaceSite(r, id); err != nil {
+		httpserver.Error(w, err)
+		return
+	}
 	var req struct {
 		Code     string `json:"code" validate:"required,max=20"`
 		Type     string `json:"type" validate:"required,oneof=car moto bike mixed"`
@@ -261,6 +297,10 @@ func (h *Handler) UpdateSpace(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) UpdateSpaceStatus(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if err := h.checkSpaceSite(r, id); err != nil {
+		httpserver.Error(w, err)
+		return
+	}
 	var req struct {
 		Status string `json:"status" validate:"required,oneof=free occupied reserved disabled"`
 	}
@@ -281,6 +321,10 @@ func (h *Handler) UpdateSpaceStatus(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DeleteSpace(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if err := h.checkSpaceSite(r, id); err != nil {
+		httpserver.Error(w, err)
+		return
+	}
 	if err := h.svc.DeleteSpace(id); err != nil {
 		httpserver.Error(w, err)
 		return

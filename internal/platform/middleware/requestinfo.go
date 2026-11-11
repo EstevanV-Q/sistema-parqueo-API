@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
+
 	ctxpkg "parking-backend/internal/platform/security/ctx"
 )
 
@@ -17,6 +19,17 @@ func RequestInfo(next http.Handler) http.Handler {
 		ctx := ctxpkg.WithIP(r.Context(), ip)
 		ctx = ctxpkg.WithUserAgent(ctx, r.UserAgent())
 		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// RequestIDHeader expone el request ID de chi para correlacionar logs y
+// respuestas de error.
+func RequestIDHeader(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if id := chimiddleware.GetReqID(r.Context()); id != "" {
+			w.Header().Set("X-Request-ID", id)
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 

@@ -3,6 +3,9 @@ package apperr
 import (
 	"errors"
 	"net/http"
+
+	"github.com/go-sql-driver/mysql"
+	"modernc.org/sqlite"
 )
 
 // Error representa un error de dominio con código estable y estado HTTP.
@@ -40,12 +43,39 @@ func From(err error) *Error {
 	if errors.As(err, &e) {
 		return e
 	}
+	if isDuplicateKey(err) {
+		return &Error{
+			Code:       ErrAlreadyExists,
+			Message:    "ya existe un registro con esos datos",
+			HTTPStatus: http.StatusConflict,
+			Err:        err,
+		}
+	}
 	return &Error{
-		Code:       "INTERNAL",
-		Message:    err.Error(),
+		Code:       ErrInternal,
+		Message:    "error interno",
 		HTTPStatus: http.StatusInternalServerError,
 		Err:        err,
 	}
+}
+
+// isDuplicateKey detecta violaciones de restricciones UNIQUE tanto en MySQL
+// como en SQLite, para responder 409 en lugar de 500.
+func isDuplicateKey(err error) bool {
+	if err == nil {
+		return false
+	}
+	var mysqlErr *mysql.MySQLError
+	if errors.As(err, &mysqlErr) {
+		return mysqlErr.Number == 1062
+	}
+	var sqliteErr *sqlite.Error
+	if errors.As(err, &sqliteErr) {
+		// 2067 = SQLITE_CONSTRAINT_UNIQUE, 1555 = SQLITE_CONSTRAINT_PRIMARYKEY.
+		code := sqliteErr.Code()
+		return code == 2067 || code == 1555
+	}
+	return false
 }
 
 // FromErr es como From pero devuelve nil cuando err es nil. Se usa en rutas

@@ -1,10 +1,10 @@
 info:
   name: "Ocupación en tiempo real (WebSocket)"
   type: websocket
-  seq: 1
+  seq: 2
 
 websocket:
-  url: "{{wsUrl}}/api/v1/ws/occupancy?site_id={{siteId}}"
+  url: "{{wsUrl}}/api/v1/ws/occupancy?site_id={{siteId}}&ticket={{wsTicket}}"
 
 settings:
   timeout: 0
@@ -12,6 +12,6 @@ settings:
 
 docs: |-
   Conectar y esperar los mensajes del servidor.
-  
-  Este endpoint no exige JWT; solo filtra por site_id.
-  Requiere haber ejecutado 02_catalog/sites/01_listar_sedes.yml para tener siteId.
+
+  Requiere ejecutar 12_realtime/00_ws_ticket.yml para obtener wsTicket y
+  02_catalog/sites/01_listar_sedes.yml para tener siteId.

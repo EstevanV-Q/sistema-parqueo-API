@@ -12,50 +12,67 @@ import (
 	"parking-backend/internal/platform/clock"
 )
 
-// Claims contiene los claims del JWT de acceso.
+// Tipos de token. El middleware y los servicios deben validar siempre el tipo
+// antes de aceptar un token: un refresh token no es un access token.
+const (
+	TokenTypeAccess  = "access"
+	TokenTypeRefresh = "refresh"
+	TokenTypeWS      = "ws"
+)
+
+// Claims contiene los claims de los JWT emitidos por el sistema.
 type Claims struct {
-	UserID   string  `json:"user_id"`
-	Username string  `json:"username"`
-	Role     string  `json:"role"`
-	SiteID   *string `json:"site_id,omitempty"`
+	UserID    string  `json:"user_id"`
+	Username  string  `json:"username"`
+	Role      string  `json:"role"`
+	SiteID    *string `json:"site_id,omitempty"`
+	TokenType string  `json:"token_type"`
 	jwt.RegisteredClaims
 }
 
-// AccessToken genera un JWT de acceso firmado con HS256.
-// Si se proporciona now, se usa para calcular expiración y issued_at (útil en tests).
-func AccessToken(secret string, userID, username, role string, siteID *string, expiry time.Duration, now ...clock.NowFunc) (string, time.Time, error) {
-	nowFn := time.Now
+func nowFunc(now []clock.NowFunc) clock.NowFunc {
 	if len(now) > 0 && now[0] != nil {
-		nowFn = now[0]
+		return now[0]
 	}
-	expiresAt := nowFn().Add(expiry)
-	issuedAt := nowFn()
-	claims := Claims{
-		UserID:   userID,
-		Username: username,
-		Role:     role,
-		SiteID:   siteID,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(issuedAt),
-			Subject:   userID,
-		},
-	}
+	return time.Now
+}
+
+func sign(secret string, claims Claims) (string, time.Time, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(secret))
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	return signed, expiresAt, nil
+	return signed, claims.ExpiresAt.Time, nil
 }
 
-// RefreshToken genera un JWT de refresh (sin claims de negocio, solo sub y exp).
-// Si se proporciona now, se usa para calcular expiración y issued_at (útil en tests).
-func RefreshToken(secret string, userID string, expiry time.Duration, now ...clock.NowFunc) (string, time.Time, error) {
-	nowFn := time.Now
-	if len(now) > 0 && now[0] != nil {
-		nowFn = now[0]
+// AccessToken genera un JWT de acceso firmado con HS256.
+func AccessToken(secret, issuer, audience, userID, username, role string, siteID *string, expiry time.Duration, now ...clock.NowFunc) (string, time.Time, error) {
+	nowFn := nowFunc(now)
+	expiresAt := nowFn().Add(expiry)
+	issuedAt := nowFn()
+	claims := Claims{
+		UserID:    userID,
+		Username:  username,
+		Role:      role,
+		SiteID:    siteID,
+		TokenType: TokenTypeAccess,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    issuer,
+			Audience:  jwt.ClaimStrings{audience},
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			IssuedAt:  jwt.NewNumericDate(issuedAt),
+			NotBefore: jwt.NewNumericDate(issuedAt),
+			Subject:   userID,
+		},
 	}
+	return sign(secret, claims)
+}
+
+// RefreshToken genera un JWT de refresh. No incluye rol ni sede porque solo
+// sirve para solicitar un nuevo par de tokens en /auth/refresh.
+func RefreshToken(secret, issuer, audience, userID string, expiry time.Duration, now ...clock.NowFunc) (string, time.Time, error) {
+	nowFn := nowFunc(now)
 	expiresAt := nowFn().Add(expiry)
 	issuedAt := nowFn()
 
@@ -66,50 +83,116 @@ func RefreshToken(secret string, userID string, expiry time.Duration, now ...clo
 		return "", time.Time{}, err
 	}
 
-	claims := jwt.RegisteredClaims{
-		ExpiresAt: jwt.NewNumericDate(expiresAt),
-		IssuedAt:  jwt.NewNumericDate(issuedAt),
-		Subject:   userID,
-		ID:        hex.EncodeToString(jtiBytes),
+	claims := Claims{
+		UserID:    userID,
+		TokenType: TokenTypeRefresh,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    issuer,
+			Audience:  jwt.ClaimStrings{audience},
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			IssuedAt:  jwt.NewNumericDate(issuedAt),
+			NotBefore: jwt.NewNumericDate(issuedAt),
+			Subject:   userID,
+			ID:        hex.EncodeToString(jtiBytes),
+		},
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, err := token.SignedString([]byte(secret))
-	if err != nil {
-		return "", time.Time{}, err
-	}
-	return signed, expiresAt, nil
+	return sign(secret, claims)
 }
 
-// ParseAccessToken valida y devuelve los claims de un token de acceso.
-func ParseAccessToken(secret, tokenStr string) (*Claims, error) {
-	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(token *jwt.Token) (any, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("método de firma inesperado: %v", token.Header["alg"])
-		}
-		return []byte(secret), nil
-	})
+// WSTicket genera un token efímero para abrir el WebSocket. Evita exponer el
+// access token de larga vida en la query string.
+func WSTicket(secret, issuer, audience, userID, username, role string, siteID *string, expiry time.Duration, now ...clock.NowFunc) (string, time.Time, error) {
+	nowFn := nowFunc(now)
+	expiresAt := nowFn().Add(expiry)
+	issuedAt := nowFn()
+	claims := Claims{
+		UserID:    userID,
+		Username:  username,
+		Role:      role,
+		SiteID:    siteID,
+		TokenType: TokenTypeWS,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    issuer,
+			Audience:  jwt.ClaimStrings{audience},
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			IssuedAt:  jwt.NewNumericDate(issuedAt),
+			NotBefore: jwt.NewNumericDate(issuedAt),
+			Subject:   userID,
+		},
+	}
+	return sign(secret, claims)
+}
+
+func parseClaims(secret, issuer, audience, tokenStr string) (*Claims, error) {
+	if tokenStr == "" {
+		return nil, errors.New("token requerido")
+	}
+	token, err := jwt.ParseWithClaims(
+		tokenStr,
+		&Claims{},
+		func(token *jwt.Token) (any, error) {
+			if token.Method != jwt.SigningMethodHS256 {
+				return nil, fmt.Errorf("método de firma inesperado: %v", token.Header["alg"])
+			}
+			return []byte(secret), nil
+		},
+		jwt.WithValidMethods([]string{"HS256"}),
+		jwt.WithIssuer(issuer),
+		jwt.WithAudience(audience),
+		jwt.WithExpirationRequired(),
+		jwt.WithIssuedAt(),
+	)
 	if err != nil {
 		return nil, err
 	}
-	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
-		return claims, nil
+	claims, ok := token.Claims.(*Claims)
+	if !ok || !token.Valid {
+		return nil, errors.New("token inválido")
 	}
-	return nil, errors.New("token inválido")
+	return claims, nil
 }
 
-// ParseRefreshToken valida un token de refresh y devuelve el userID (sub).
-func ParseRefreshToken(secret, tokenStr string) (string, error) {
-	token, err := jwt.ParseWithClaims(tokenStr, &jwt.RegisteredClaims{}, func(token *jwt.Token) (any, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("método de firma inesperado: %v", token.Header["alg"])
-		}
-		return []byte(secret), nil
-	})
+// ParseAccessToken valida y devuelve los claims de un token de acceso.
+func ParseAccessToken(secret, issuer, audience, tokenStr string) (*Claims, error) {
+	claims, err := parseClaims(secret, issuer, audience, tokenStr)
+	if err != nil {
+		return nil, err
+	}
+	if claims.TokenType != TokenTypeAccess {
+		return nil, errors.New("tipo de token inválido")
+	}
+	if claims.UserID == "" || claims.Role == "" || claims.Subject != claims.UserID {
+		return nil, errors.New("claims de acceso incompletos")
+	}
+	return claims, nil
+}
+
+// ParseRefreshToken valida un refresh token y devuelve el userID (sub).
+func ParseRefreshToken(secret, issuer, audience, tokenStr string) (string, error) {
+	claims, err := parseClaims(secret, issuer, audience, tokenStr)
 	if err != nil {
 		return "", err
 	}
-	if claims, ok := token.Claims.(*jwt.RegisteredClaims); ok && token.Valid {
-		return claims.Subject, nil
+	if claims.TokenType != TokenTypeRefresh {
+		return "", errors.New("tipo de token inválido")
 	}
-	return "", errors.New("token inválido")
+	if claims.UserID == "" || claims.Subject != claims.UserID {
+		return "", errors.New("claims de refresh incompletos")
+	}
+	return claims.UserID, nil
+}
+
+// ParseWSTicket valida el token efímero usado para abrir el WebSocket.
+func ParseWSTicket(secret, issuer, audience, tokenStr string) (*Claims, error) {
+	claims, err := parseClaims(secret, issuer, audience, tokenStr)
+	if err != nil {
+		return nil, err
+	}
+	if claims.TokenType != TokenTypeWS {
+		return nil, errors.New("tipo de token inválido")
+	}
+	if claims.UserID == "" || claims.Role == "" || claims.Subject != claims.UserID {
+		return nil, errors.New("claims de websocket incompletos")
+	}
+	return claims, nil
 }

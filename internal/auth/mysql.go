@@ -6,14 +6,21 @@ import (
 
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
+	"parking-backend/internal/platform/outbox"
 )
 
 type mysqlRepo struct {
-	db *sql.DB
+	db     *sql.DB
+	outbox *outbox.Store
 }
 
 func NewMySQLRepository(db *sql.DB) Repository {
 	return &mysqlRepo{db: db}
+}
+
+// NewSQLiteRepository usa el mismo contrato y esquema lógico que MySQL.
+func NewSQLiteRepository(db *sql.DB) Repository {
+	return &mysqlRepo{db: db, outbox: outbox.NewStore(db)}
 }
 
 func (r *mysqlRepo) Create(u *User) error {
@@ -26,11 +33,32 @@ func (r *mysqlRepo) Create(u *User) error {
 	if u.SiteID != nil {
 		siteID = ids.StringToBin16(*u.SiteID)
 	}
-	_, err := r.db.Exec(query, idBin, u.Username, u.Email, u.PasswordHash, u.Role, siteID, u.Active, time.Now().UTC())
+	now := time.Now().UTC()
+	tx, err := r.db.Begin()
 	if err != nil {
 		return apperr.From(err)
 	}
-	u.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(query, idBin, u.Username, u.Email, u.PasswordHash, u.Role, siteID, u.Active, now)
+	if err != nil {
+		return apperr.From(err)
+	}
+	if err := r.outbox.EnqueueTx(tx, "user", u.ID, "user.created", map[string]any{
+		"user_id":       u.ID,
+		"username":      u.Username,
+		"email":         u.Email,
+		"password_hash": u.PasswordHash,
+		"role":          u.Role,
+		"site_id":       u.SiteID,
+		"active":        u.Active,
+	}); err != nil {
+		return apperr.From(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return apperr.From(err)
+	}
+	u.CreatedAt = now.Format(time.RFC3339)
 	return nil
 }
 
@@ -38,6 +66,13 @@ func (r *mysqlRepo) ByUsername(username string) (*User, error) {
 	query := `SELECT id, username, email, password_hash, role, site_id, active, created_at, last_login
               FROM users WHERE username = ? LIMIT 1`
 	row := r.db.QueryRow(query, username)
+	return scanUser(row)
+}
+
+func (r *mysqlRepo) ByEmail(email string) (*User, error) {
+	query := `SELECT id, username, email, password_hash, role, site_id, active, created_at, last_login
+              FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`
+	row := r.db.QueryRow(query, email)
 	return scanUser(row)
 }
 

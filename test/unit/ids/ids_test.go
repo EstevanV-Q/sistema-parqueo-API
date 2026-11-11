@@ -1,8 +1,10 @@
-package ids
+package ids_test
 
 import (
 	"encoding/hex"
 	"testing"
+
+	. "parking-backend/internal/platform/ids"
 )
 
 func TestUUIDv7_VersionAndVariant(t *testing.T) {

@@ -6,25 +6,56 @@ import (
 
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
+	"parking-backend/internal/platform/outbox"
 )
 
 type mysqlRepo struct {
-	db *sql.DB
+	db     *sql.DB
+	outbox *outbox.Store
 }
 
 func NewMySQLRepository(db *sql.DB) Repository {
 	return &mysqlRepo{db: db}
 }
 
+// NewSQLiteRepository usa el mismo contrato y esquema lógico que MySQL.
+func NewSQLiteRepository(db *sql.DB) Repository {
+	return &mysqlRepo{db: db, outbox: outbox.NewStore(db)}
+}
+
 func (r *mysqlRepo) Create(s *Subscription) error {
 	idBin := ids.UUIDv7()
 	s.ID = ids.Bin16ToString(idBin)
-	query := `INSERT INTO subscriptions (id, customer_id, vehicle_id, site_id, plan_name, price_cents, starts_at, expires_at, status)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err := r.db.Exec(query, idBin, ids.StringToBin16(s.CustomerID), ids.StringToBin16(s.VehicleID), ids.StringToBin16(s.SiteID), s.PlanName, s.PriceCents, s.StartsAt, s.ExpiresAt, s.Status)
+	query := `INSERT INTO subscriptions (id, customer_id, vehicle_id, site_id, plan_name, price_cents, starts_at, expires_at, status, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	now := time.Now().UTC()
+	tx, err := r.db.Begin()
 	if err != nil {
 		return apperr.From(err)
 	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(query, idBin, ids.StringToBin16(s.CustomerID), ids.StringToBin16(s.VehicleID), ids.StringToBin16(s.SiteID), s.PlanName, s.PriceCents, s.StartsAt, s.ExpiresAt, s.Status, now)
+	if err != nil {
+		return apperr.From(err)
+	}
+	if err := r.outbox.EnqueueTx(tx, "subscription", s.ID, "subscription.created", map[string]any{
+		"subscription_id": s.ID,
+		"customer_id":     s.CustomerID,
+		"vehicle_id":      s.VehicleID,
+		"site_id":         s.SiteID,
+		"plan_name":       s.PlanName,
+		"price_cents":     s.PriceCents,
+		"starts_at":       s.StartsAt,
+		"expires_at":      s.ExpiresAt,
+		"status":          s.Status,
+	}); err != nil {
+		return apperr.From(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return apperr.From(err)
+	}
+	s.CreatedAt = now
 	return nil
 }
 
@@ -57,8 +88,18 @@ func (r *mysqlRepo) ActiveByPlateSite(plateNormalized, siteID string, now time.T
 }
 
 func (r *mysqlRepo) UpdateStatus(id, status string) error {
-	_, err := r.db.Exec(`UPDATE subscriptions SET status=? WHERE id = ?`, status, ids.StringToBin16(id))
-	return apperr.FromErr(err)
+	if _, err := r.db.Exec(`UPDATE subscriptions SET status=? WHERE id = ?`, status, ids.StringToBin16(id)); err != nil {
+		return apperr.From(err)
+	}
+	if status == SubCancelled {
+		if err := r.outbox.Enqueue("subscription", id, "subscription.cancelled", map[string]any{
+			"subscription_id": id,
+			"status":          status,
+		}); err != nil {
+			return apperr.From(err)
+		}
+	}
+	return nil
 }
 
 func (r *mysqlRepo) ListBySite(siteID string, status string, limit, offset int) ([]*Subscription, error) {

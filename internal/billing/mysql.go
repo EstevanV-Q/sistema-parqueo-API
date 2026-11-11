@@ -6,22 +6,30 @@ import (
 
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
+	"parking-backend/internal/platform/outbox"
 )
 
 type mysqlRepo struct {
-	db *sql.DB
+	db     *sql.DB
+	outbox *outbox.Store
 }
 
 func NewMySQLRepository(db *sql.DB) Repository {
 	return &mysqlRepo{db: db}
 }
 
+// NewSQLiteRepository usa el mismo contrato y esquema lógico que MySQL.
+func NewSQLiteRepository(db *sql.DB) Repository {
+	return &mysqlRepo{db: db, outbox: outbox.NewStore(db)}
+}
+
 func (r *mysqlRepo) Create(p *Payment) error {
 	idBin := ids.UUIDv7()
 	p.ID = ids.Bin16ToString(idBin)
 
-	query := `INSERT INTO payments (id, ticket_id, subscription_id, amount_cents, currency, method, status, reference, cashier_user_id, idempotency_key)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	now := time.Now().UTC()
+	query := `INSERT INTO payments (id, ticket_id, subscription_id, amount_cents, currency, method, status, reference, cashier_user_id, idempotency_key, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	var ticketID, subID, cashierID []byte
 	if p.TicketID != nil && *p.TicketID != "" {
 		ticketID = ids.StringToBin16(*p.TicketID)
@@ -32,14 +40,40 @@ func (r *mysqlRepo) Create(p *Payment) error {
 	if p.CashierUserID != nil && *p.CashierUserID != "" {
 		cashierID = ids.StringToBin16(*p.CashierUserID)
 	}
-	var idemKey []byte
+	var idemKey any
 	if p.IdempotencyKey != nil && *p.IdempotencyKey != "" {
-		idemKey = []byte(*p.IdempotencyKey)
+		idemKey = *p.IdempotencyKey
 	}
-	_, err := r.db.Exec(query, idBin, ticketID, subID, p.AmountCents, p.Currency, p.Method, p.Status, p.Reference, cashierID, idemKey)
+	tx, err := r.db.Begin()
 	if err != nil {
 		return apperr.From(err)
 	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(query, idBin, ticketID, subID, p.AmountCents, p.Currency, p.Method, p.Status, p.Reference, cashierID, idemKey, now, now)
+	if err != nil {
+		return apperr.From(err)
+	}
+	if err := r.outbox.EnqueueTx(tx, "payment", p.ID, "payment.created", map[string]any{
+		"payment_id":      p.ID,
+		"ticket_id":       p.TicketID,
+		"subscription_id": p.SubscriptionID,
+		"amount_cents":    p.AmountCents,
+		"currency":        p.Currency,
+		"method":          p.Method,
+		"status":          p.Status,
+		"reference":       p.Reference,
+		"cashier_user_id": p.CashierUserID,
+		"idempotency_key": p.IdempotencyKey,
+		"created_at":      now,
+	}); err != nil {
+		return apperr.From(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return apperr.From(err)
+	}
+	p.CreatedAt = now
+	p.UpdatedAt = now
 	return nil
 }
 
@@ -62,8 +96,20 @@ func (r *mysqlRepo) ByIdempotencyKey(key string) (*Payment, error) {
 }
 
 func (r *mysqlRepo) UpdateStatus(id, status string) error {
-	_, err := r.db.Exec(`UPDATE payments SET status=?, updated_at=? WHERE id = ?`, status, time.Now().UTC(), ids.StringToBin16(id))
-	return apperr.FromErr(err)
+	now := time.Now().UTC()
+	if _, err := r.db.Exec(`UPDATE payments SET status=?, updated_at=? WHERE id = ?`, status, now, ids.StringToBin16(id)); err != nil {
+		return apperr.From(err)
+	}
+	if status == PaymentRefunded {
+		if err := r.outbox.Enqueue("payment", id, "payment.refunded", map[string]any{
+			"payment_id": id,
+			"status":     status,
+			"updated_at": now,
+		}); err != nil {
+			return apperr.From(err)
+		}
+	}
+	return nil
 }
 
 func (r *mysqlRepo) CajaDiaria(siteID string, date string) (*CajaDiaria, error) {

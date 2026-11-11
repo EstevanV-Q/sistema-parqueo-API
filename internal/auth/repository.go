@@ -9,6 +9,7 @@ import (
 type Repository interface {
 	Create(u *User) error
 	ByUsername(username string) (*User, error)
+	ByEmail(email string) (*User, error)
 	ByID(id string) (*User, error)
 	UpdateLastLogin(id string, at time.Time) error
 

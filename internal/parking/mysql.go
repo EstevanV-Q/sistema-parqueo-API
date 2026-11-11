@@ -6,22 +6,40 @@ import (
 
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
+	"parking-backend/internal/platform/outbox"
 )
 
 type mysqlRepo struct {
-	db *sql.DB
+	db        *sql.DB
+	forUpdate bool
+	outbox    *outbox.Store
 }
 
 func NewMySQLRepository(db *sql.DB) Repository {
-	return &mysqlRepo{db: db}
+	return &mysqlRepo{db: db, forUpdate: true}
+}
+
+// NewSQLiteRepository usa el mismo esquema lógico que MySQL (IDs BLOB de 16
+// bytes) pero sin SELECT ... FOR UPDATE. El bloqueo se obtiene al abrir la
+// transacción con _txlock=immediate en el DSN de SQLite.
+func NewSQLiteRepository(db *sql.DB) Repository {
+	return &mysqlRepo{db: db, outbox: outbox.NewStore(db)}
+}
+
+func (r *mysqlRepo) lockClause() string {
+	if r.forUpdate {
+		return " FOR UPDATE"
+	}
+	return ""
 }
 
 func (r *mysqlRepo) Create(t *Ticket) error {
 	idBin := ids.UUIDv7()
 	t.ID = ids.Bin16ToString(idBin)
 
-	query := `INSERT INTO tickets (id, site_id, zone_id, space_id, vehicle_id, subscription_id, plate_normalized, plate_raw, type_id, rate_plan_id, entry_at, status, total_cents, paid_cents, is_lost)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	now := time.Now().UTC()
+	query := `INSERT INTO tickets (id, site_id, zone_id, space_id, vehicle_id, subscription_id, plate_normalized, plate_raw, type_id, rate_plan_id, entry_at, status, total_cents, paid_cents, is_lost, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	var zoneID, spaceID, vehicleID, subID, ratePlanID []byte
 	if t.ZoneID != nil && *t.ZoneID != "" {
 		zoneID = ids.StringToBin16(*t.ZoneID)
@@ -38,10 +56,36 @@ func (r *mysqlRepo) Create(t *Ticket) error {
 	if t.RatePlanID != nil && *t.RatePlanID != "" {
 		ratePlanID = ids.StringToBin16(*t.RatePlanID)
 	}
-	_, err := r.db.Exec(query, idBin, ids.StringToBin16(t.SiteID), zoneID, spaceID, vehicleID, subID, t.PlateNormalized, t.PlateRaw, ids.StringToBin16(t.TypeID), ratePlanID, t.EntryAt, t.Status, t.TotalCents, t.PaidCents, t.IsLost)
+	tx, err := r.db.Begin()
 	if err != nil {
 		return apperr.From(err)
 	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(query, idBin, ids.StringToBin16(t.SiteID), zoneID, spaceID, vehicleID, subID, t.PlateNormalized, t.PlateRaw, ids.StringToBin16(t.TypeID), ratePlanID, t.EntryAt, t.Status, t.TotalCents, t.PaidCents, t.IsLost, now, now)
+	if err != nil {
+		return apperr.From(err)
+	}
+	if err := r.outbox.EnqueueTx(tx, "ticket", t.ID, "ticket.entered", map[string]any{
+		"ticket_id":        t.ID,
+		"site_id":          t.SiteID,
+		"space_id":         t.SpaceID,
+		"plate_normalized": t.PlateNormalized,
+		"type_id":          t.TypeID,
+		"rate_plan_id":     t.RatePlanID,
+		"entry_at":         t.EntryAt,
+		"status":           t.Status,
+		"subscription_id":  t.SubscriptionID,
+		"total_cents":      t.TotalCents,
+		"paid_cents":       t.PaidCents,
+	}); err != nil {
+		return apperr.From(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return apperr.From(err)
+	}
+	t.CreatedAt = now
+	t.UpdatedAt = now
 	return nil
 }
 
@@ -78,7 +122,7 @@ func (r *mysqlRepo) SettleTicketTx(ticketID string, exitAt time.Time, totalCents
 
 	var currentStatus string
 	ticketBin := ids.StringToBin16(ticketID)
-	err = tx.QueryRow(`SELECT status FROM tickets WHERE id = ? FOR UPDATE`, ticketBin).Scan(&currentStatus)
+	err = tx.QueryRow(`SELECT status FROM tickets WHERE id = ?`+r.lockClause(), ticketBin).Scan(&currentStatus)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return ErrNotFound
@@ -117,6 +161,68 @@ func (r *mysqlRepo) SettleTicketTx(ticketID string, exitAt time.Time, totalCents
 	if err != nil {
 		return apperr.From(err)
 	}
+	if err := r.outbox.EnqueueTx(tx, "ticket", ticketID, "ticket.settled", map[string]any{
+		"ticket_id":       ticketID,
+		"payment_id":      ids.Bin16ToString(paymentID),
+		"exit_at":         exitAt,
+		"total_cents":     totalCents,
+		"paid_cents":      paidCents,
+		"currency":        "COP",
+		"method":          method,
+		"cashier_user_id": cashierUserID,
+		"status":          TicketPaid,
+	}); err != nil {
+		return apperr.From(err)
+	}
+
+	return tx.Commit()
+}
+
+func (r *mysqlRepo) CancelTicketTx(ticketID string, exitAt time.Time, actorUserID string) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return apperr.From(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var currentStatus string
+	ticketBin := ids.StringToBin16(ticketID)
+	err = tx.QueryRow(`SELECT status FROM tickets WHERE id = ?`+r.lockClause(), ticketBin).Scan(&currentStatus)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrNotFound
+		}
+		return apperr.From(err)
+	}
+	if currentStatus != TicketOpen {
+		return ErrTicketNotOpen
+	}
+
+	now := time.Now().UTC()
+	_, err = tx.Exec(`UPDATE tickets SET exit_at=?, status=?, total_cents=0, paid_cents=0, updated_at=? WHERE id = ?`,
+		exitAt, TicketCancelled, now, ticketBin)
+	if err != nil {
+		return apperr.From(err)
+	}
+
+	var actorBin []byte
+	if actorUserID != "" {
+		actorBin = ids.StringToBin16(actorUserID)
+	}
+	_, err = tx.Exec(`INSERT INTO ticket_events (id, ticket_id, event_type, actor_user_id, details, created_at)
+		VALUES (?, ?, 'cancel', ?, 'ticket_cancelado', ?)`,
+		ids.UUIDv7(), ticketBin, actorBin, now)
+	if err != nil {
+		return apperr.From(err)
+	}
+	if err := r.outbox.EnqueueTx(tx, "ticket", ticketID, "ticket.cancelled", map[string]any{
+		"ticket_id":     ticketID,
+		"exit_at":       exitAt,
+		"actor_user_id": actorUserID,
+		"status":        TicketCancelled,
+	}); err != nil {
+		return apperr.From(err)
+	}
 
 	return tx.Commit()
 }
@@ -130,7 +236,19 @@ func (r *mysqlRepo) Update(t *Ticket) error {
 func (r *mysqlRepo) Close(id string, exitAt time.Time, totalCents, paidCents int64, status string) error {
 	_, err := r.db.Exec(`UPDATE tickets SET exit_at=?, status=?, total_cents=?, paid_cents=?, updated_at=? WHERE id = ?`,
 		exitAt, status, totalCents, paidCents, time.Now().UTC(), ids.StringToBin16(id))
-	return apperr.FromErr(err)
+	if err != nil {
+		return apperr.From(err)
+	}
+	if err := r.outbox.Enqueue("ticket", id, "ticket.closed", map[string]any{
+		"ticket_id":   id,
+		"exit_at":     exitAt,
+		"total_cents": totalCents,
+		"paid_cents":  paidCents,
+		"status":      status,
+	}); err != nil {
+		return apperr.From(err)
+	}
+	return nil
 }
 
 func (r *mysqlRepo) Events(ticketID string) ([]TicketEvent, error) {
@@ -146,14 +264,15 @@ func (r *mysqlRepo) Events(ticketID string) ([]TicketEvent, error) {
 		var e TicketEvent
 		var idBin []byte
 		var ticketIDBin []byte
-		var actorID sql.NullString
-		if err := rows.Scan(&idBin, &ticketIDBin, &e.EventType, &actorID, &e.Details, &e.CreatedAt); err != nil {
+		var actorBin []byte
+		if err := rows.Scan(&idBin, &ticketIDBin, &e.EventType, &actorBin, &e.Details, &e.CreatedAt); err != nil {
 			return nil, apperr.From(err)
 		}
 		e.ID = ids.Bin16ToString(idBin)
 		e.TicketID = ids.Bin16ToString(ticketIDBin)
-		if actorID.Valid {
-			e.ActorUserID = &actorID.String
+		if len(actorBin) > 0 {
+			actorID := ids.Bin16ToString(actorBin)
+			e.ActorUserID = &actorID
 		}
 		events = append(events, e)
 	}
@@ -161,9 +280,13 @@ func (r *mysqlRepo) Events(ticketID string) ([]TicketEvent, error) {
 }
 
 func (r *mysqlRepo) CreateEvent(e *TicketEvent) error {
+	var actorBin []byte
+	if e.ActorUserID != nil && *e.ActorUserID != "" {
+		actorBin = ids.StringToBin16(*e.ActorUserID)
+	}
 	_, err := r.db.Exec(`INSERT INTO ticket_events (id, ticket_id, event_type, actor_user_id, details, created_at)
               VALUES (?, ?, ?, ?, ?, ?)`,
-		ids.UUIDv7(), ids.StringToBin16(e.TicketID), e.EventType, e.ActorUserID, e.Details, time.Now().UTC())
+		ids.UUIDv7(), ids.StringToBin16(e.TicketID), e.EventType, actorBin, e.Details, time.Now().UTC())
 	return apperr.FromErr(err)
 }
 

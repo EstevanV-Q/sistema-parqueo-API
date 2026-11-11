@@ -16,7 +16,8 @@ type Service struct {
 	ratePlanReader    RatePlanReader
 	spaceUpdater      SpaceStatusUpdater
 	subscriptionCheck SubscriptionChecker
-	paymentCreator    PaymentCreator
+	vehicleTypes      VehicleTypeResolver
+	defaultTypeCode   string
 	publisher         EventPublisher
 	now               clock.NowFunc
 }
@@ -46,15 +47,27 @@ func (s *Service) WithSubscriptionChecker(c SubscriptionChecker) *Service {
 	return s
 }
 
-// WithPaymentCreator inyecta el creador de pagos.
-func (s *Service) WithPaymentCreator(c PaymentCreator) *Service {
-	s.paymentCreator = c
-	return s
-}
-
 // WithEventPublisher inyecta el publicador de eventos en tiempo real.
 func (s *Service) WithEventPublisher(p EventPublisher) *Service {
 	s.publisher = p
+	return s
+}
+
+// WithVehicleTypeResolver inyecta la resolución de tipos de vehículo.
+func (s *Service) WithVehicleTypeResolver(r VehicleTypeResolver) *Service {
+	s.vehicleTypes = r
+	return s
+}
+
+// WithDefaultVehicleType define el código de tipo usado en entradas LPR.
+func (s *Service) WithDefaultVehicleType(code string) *Service {
+	s.defaultTypeCode = code
+	return s
+}
+
+// WithClock permite inyectar un reloj determinista en pruebas.
+func (s *Service) WithClock(now clock.NowFunc) *Service {
+	s.now = now
 	return s
 }
 
@@ -95,12 +108,20 @@ func (s *Service) CreateTicket(siteID, zoneID, spaceID, vehicleID, plateNormaliz
 	var subID *string
 	if s.subscriptionCheck != nil {
 		if vehicleID != "" {
-			if sub, err := s.subscriptionCheck.Validate(vehicleID, siteID, s.now()); err == nil && sub != nil && sub.Status == SubActive {
+			sub, err := s.subscriptionCheck.Validate(vehicleID, siteID, s.now())
+			if err != nil && !apperr.Is(err, apperr.ErrNotFound) {
+				return nil, err
+			}
+			if sub != nil && sub.Status == SubActive {
 				subID = &sub.ID
 			}
 		}
 		if subID == nil && plateNormalized != "" {
-			if sub, err := s.subscriptionCheck.ValidateByPlate(plateNormalized, siteID, s.now()); err == nil && sub != nil && sub.Status == SubActive {
+			sub, err := s.subscriptionCheck.ValidateByPlate(plateNormalized, siteID, s.now())
+			if err != nil && !apperr.Is(err, apperr.ErrNotFound) {
+				return nil, err
+			}
+			if sub != nil && sub.Status == SubActive {
 				subID = &sub.ID
 				if vehicleID == "" {
 					vehicleID = sub.VehicleID
@@ -258,25 +279,9 @@ func (s *Service) Settle(ticketID string, paidCents int64, method string, cashie
 	exitAt := s.now()
 	totalCents := int64(quote.Amount)
 
-	// Intentar ejecutar transacción atómica con bloqueo pesimista
-	txErr := s.repo.SettleTicketTx(ticketID, exitAt, totalCents, paidCents, method, cashierUserID)
-	if txErr != nil {
-		// Fallback para implementaciones en memoria o fakes de pruebas
-		if err := s.repo.Close(ticketID, exitAt, totalCents, paidCents, TicketPaid); err != nil {
-			return nil, err
-		}
-		if s.paymentCreator != nil {
-			if _, err := s.paymentCreator.CreatePayment(ticketID, paidCents, method, cashierUserID); err != nil {
-				return nil, err
-			}
-		}
-		if err := s.repo.CreateEvent(&TicketEvent{
-			TicketID:  t.ID,
-			EventType: "exit",
-			Details:   "vehiculo_salido",
-		}); err != nil {
-			log.Printf("parking: no se pudo registrar evento de salida del ticket %s: %v", t.ID, err)
-		}
+	// Liquidación atómica: ticket, pago y evento se confirman o revierten juntos.
+	if err := s.repo.SettleTicketTx(ticketID, exitAt, totalCents, paidCents, method, cashierUserID); err != nil {
+		return nil, err
 	}
 
 	// Liberar el espacio
@@ -314,18 +319,9 @@ func (s *Service) Cancel(ticketID string, actorUserID string) (*Ticket, error) {
 	}
 
 	now := s.now()
-	if err := s.repo.Close(ticketID, now, 0, 0, TicketCancelled); err != nil {
+	// La cancelación y su evento se confirman juntos.
+	if err := s.repo.CancelTicketTx(ticketID, now, actorUserID); err != nil {
 		return nil, err
-	}
-
-	// Registrar evento de cancelación
-	if err := s.repo.CreateEvent(&TicketEvent{
-		TicketID:    t.ID,
-		EventType:   "cancel",
-		ActorUserID: &actorUserID,
-		Details:     "ticket_cancelado",
-	}); err != nil {
-		log.Printf("parking: no se pudo registrar evento de cancelación del ticket %s: %v", t.ID, err)
 	}
 
 	// Liberar el espacio
@@ -363,12 +359,22 @@ func (s *Service) AutoEnter(siteID, plateNormalized string) (string, error) {
 
 	vehicleID := ""
 	if s.subscriptionCheck != nil {
-		if sub, err := s.subscriptionCheck.ValidateByPlate(plateNormalized, siteID, s.now()); err == nil && sub != nil {
+		sub, err := s.subscriptionCheck.ValidateByPlate(plateNormalized, siteID, s.now())
+		if err != nil && !apperr.Is(err, apperr.ErrNotFound) {
+			return "", err
+		}
+		if sub != nil {
 			vehicleID = sub.VehicleID
 		}
 	}
 
-	typeID := "car"
+	if s.vehicleTypes == nil || s.defaultTypeCode == "" {
+		return "", apperr.New(apperr.ErrInternal, "resolución de tipo de vehículo no configurada", 500, nil)
+	}
+	typeID, err := s.vehicleTypes.VehicleTypeIDByCode(s.defaultTypeCode)
+	if err != nil {
+		return "", apperr.New(apperr.ErrInternal, "no se pudo resolver el tipo de vehículo por defecto", 500, err)
+	}
 	t, err := s.CreateTicket(siteID, "", "", vehicleID, plateNormalized, plateNormalized, typeID, "")
 	if err != nil {
 		return "", err
@@ -402,6 +408,9 @@ func (s *Service) AuthorizeExit(siteID, plateNormalized string) (bool, string, e
 	// 1. Validar si el vehículo tiene abono activo en esta sede
 	if s.subscriptionCheck != nil {
 		sub, err := s.subscriptionCheck.ValidateByPlate(plateNormalized, siteID, s.now())
+		if err != nil && !apperr.Is(err, apperr.ErrNotFound) {
+			return false, "", err
+		}
 		if err == nil && sub != nil && sub.Status == SubActive {
 			// Si tiene un ticket abierto, cerrarlo
 			if openTicket, err := s.repo.OpenByPlateSite(plateNormalized, siteID); err == nil && openTicket != nil {
@@ -508,3 +517,13 @@ func (s *Service) AuthorizeExit(siteID, plateNormalized string) (bool, string, e
 
 // SubActive es el estado activo de suscripción.
 const SubActive = "active"
+
+// TicketSite devuelve el siteID del ticket indicado.
+// Implementa billing.SiteResolver.
+func (s *Service) TicketSite(ticketID string) (string, error) {
+	t, err := s.repo.ByID(ticketID)
+	if err != nil {
+		return "", err
+	}
+	return t.SiteID, nil
+}

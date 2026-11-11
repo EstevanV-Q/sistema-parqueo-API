@@ -13,7 +13,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/api ./cmd/api
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/api ./cmd/api && \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/healthcheck ./cmd/healthcheck
 
 # -------------------------------------------------
 # Etapa de ejecución (imagen mínima, sin root)
@@ -26,12 +27,13 @@ WORKDIR /
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /bin/api /bin/api
+COPY --from=builder /bin/healthcheck /bin/healthcheck
 
 USER nonroot:nonroot
 
 EXPOSE 8080
 
 HEALTHCHECK --interval=10s --timeout=3s --retries=3 --start-period=10s \
-  CMD wget -qO- http://localhost:8080/healthz || exit 1
+  CMD ["/bin/healthcheck"]
 
 ENTRYPOINT ["/bin/api"]

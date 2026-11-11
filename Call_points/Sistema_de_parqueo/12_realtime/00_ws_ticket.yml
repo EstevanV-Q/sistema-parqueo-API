@@ -1,0 +1,33 @@
+info:
+  name: "Obtener ticket WebSocket"
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/v1/auth/ws-ticket"
+  headers:
+    - name: Authorization
+      value: "Bearer {{accessToken}}"
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 200 && res.body && res.body.ticket) {
+          bru.setVar("wsTicket", res.body.ticket);
+        }
+    - type: tests
+      code: |-
+        test("ticket emitido", function () {
+          expect([200]).to.include(res.status);
+          expect(res.body.ticket).to.be.a("string");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: Emite un ticket efímero para el WebSocket. Ejecutar antes de 01_ocupacion_ws.yml.

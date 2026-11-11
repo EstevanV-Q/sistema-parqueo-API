@@ -80,11 +80,24 @@ func (h *Handler) GetRatePlan(w http.ResponseWriter, r *http.Request) {
 		httpserver.Error(w, err)
 		return
 	}
+	if err := middleware.CheckSiteAccess(r.Context(), rp.SiteID); err != nil {
+		httpserver.Error(w, err)
+		return
+	}
 	httpserver.JSON(w, http.StatusOK, rp)
 }
 
 func (h *Handler) DeleteRatePlan(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	rp, err := h.svc.Get(id)
+	if err != nil {
+		httpserver.Error(w, err)
+		return
+	}
+	if err := middleware.CheckSiteAccess(r.Context(), rp.SiteID); err != nil {
+		httpserver.Error(w, err)
+		return
+	}
 	if err := h.svc.Deactivate(id); err != nil {
 		httpserver.Error(w, err)
 		return

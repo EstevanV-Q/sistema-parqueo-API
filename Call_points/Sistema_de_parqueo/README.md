@@ -12,13 +12,12 @@ Colección OpenCollection YAML para probar todos los endpoints del backend (`par
 
 ## Credenciales del seed
 
-| Rol | Usuario | Contraseña |
-|---|---|---|
-| admin | `admin` | `Admin123!` |
-| operator | `operador` | `Oper123!` |
-| auditor | `auditor` | `Audit123!` |
+Los usuarios son `admin`, `operador` y `auditor`. Las contraseñas se definen con
+`SEED_ADMIN_PASSWORD`, `SEED_OPERATOR_PASSWORD` y `SEED_AUDITOR_PASSWORD` antes
+de ejecutar el seed.
 
-El dispositivo demo usa `X-Device-Key: device-api-key-001` (también está en el environment como `deviceApiKey`).
+El dispositivo demo usa la clave definida en `SEED_DEVICE_API_KEY`; en Bruno se
+captura en la variable `deviceApiKey`.
 
 ## Variables automáticas
 

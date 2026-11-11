@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"log"
+	"strings"
 	"time"
 
 	"parking-backend/internal/config"
@@ -28,6 +29,8 @@ func NewService(repo Repository, cfg *config.Config) *Service {
 
 // Register crea un nuevo usuario y hashea su contraseña.
 func (s *Service) Register(username, email, password string, role Role, siteID *string) (*User, error) {
+	username = strings.TrimSpace(username)
+	email = strings.ToLower(strings.TrimSpace(email))
 	if username == "" || email == "" || password == "" {
 		return nil, ErrInvalidInput
 	}
@@ -35,6 +38,13 @@ func (s *Service) Register(username, email, password string, role Role, siteID *
 		return nil, ErrInvalidInput
 	}
 	existing, err := s.repo.ByUsername(username)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+	if existing != nil {
+		return nil, ErrAlreadyExists
+	}
+	existing, err = s.repo.ByEmail(email)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
@@ -69,12 +79,12 @@ func (s *Service) Login(username, password string) (*User, string, string, error
 		return nil, "", "", ErrInvalidCredentials
 	}
 
-	accessTok, _, err := security.AccessToken(s.cfg.JWTSecret, u.ID, u.Username, string(u.Role), u.SiteID, s.cfg.JWTAccess)
+	accessTok, _, err := security.AccessToken(s.cfg.JWTSecret, s.cfg.JWTIssuer, s.cfg.JWTAudience, u.ID, u.Username, string(u.Role), u.SiteID, s.cfg.JWTAccess)
 	if err != nil {
 		return nil, "", "", apperr.From(err)
 	}
 
-	refreshTok, refreshExp, err := security.RefreshToken(s.cfg.JWTSecret, u.ID, s.cfg.JWTRefresh)
+	refreshTok, refreshExp, err := security.RefreshToken(s.cfg.JWTSecret, s.cfg.JWTIssuer, s.cfg.JWTAudience, u.ID, s.cfg.JWTRefresh)
 	if err != nil {
 		return nil, "", "", apperr.From(err)
 	}
@@ -99,7 +109,7 @@ func (s *Service) Refresh(refreshToken string) (string, string, error) {
 		return "", "", ErrInvalidCredentials
 	}
 
-	userID, err := security.ParseRefreshToken(s.cfg.JWTSecret, refreshToken)
+	userID, err := security.ParseRefreshToken(s.cfg.JWTSecret, s.cfg.JWTIssuer, s.cfg.JWTAudience, refreshToken)
 	if err != nil {
 		return "", "", ErrInvalidCredentials
 	}
@@ -120,17 +130,9 @@ func (s *Service) Refresh(refreshToken string) (string, string, error) {
 		return "", "", ErrInactive
 	}
 
-	// Rotación: se revoca el token usado y se emite uno nuevo.
-	if err := s.repo.RevokeRefreshToken(stored.ID); err != nil {
-		return "", "", err
-	}
-
-	accessTok, _, err := security.AccessToken(s.cfg.JWTSecret, u.ID, u.Username, string(u.Role), u.SiteID, s.cfg.JWTAccess)
-	if err != nil {
-		return "", "", apperr.From(err)
-	}
-
-	newRefresh, refreshExp, err := security.RefreshToken(s.cfg.JWTSecret, u.ID, s.cfg.JWTRefresh)
+	// Rotación: se emite el nuevo par antes de revocar el anterior. Si la
+	// creación falla, el usuario conserva su sesión actual.
+	newRefresh, refreshExp, err := security.RefreshToken(s.cfg.JWTSecret, s.cfg.JWTIssuer, s.cfg.JWTAudience, u.ID, s.cfg.JWTRefresh)
 	if err != nil {
 		return "", "", apperr.From(err)
 	}
@@ -140,6 +142,14 @@ func (s *Service) Refresh(refreshToken string) (string, string, error) {
 		ExpiresAt: refreshExp,
 	}); err != nil {
 		return "", "", err
+	}
+	if err := s.repo.RevokeRefreshToken(stored.ID); err != nil {
+		return "", "", err
+	}
+
+	accessTok, _, err := security.AccessToken(s.cfg.JWTSecret, s.cfg.JWTIssuer, s.cfg.JWTAudience, u.ID, u.Username, string(u.Role), u.SiteID, s.cfg.JWTAccess)
+	if err != nil {
+		return "", "", apperr.From(err)
 	}
 
 	return accessTok, newRefresh, nil
@@ -167,4 +177,16 @@ func (s *Service) Me(userID string) (*User, error) {
 	return s.repo.ByID(userID)
 }
 
-var _ = time.Time{}
+// WSTicket emite un token efímero para abrir el WebSocket de ocupación.
+func (s *Service) WSTicket(userID, username, role string, siteID *string) (string, time.Time, error) {
+	return security.WSTicket(
+		s.cfg.JWTSecret,
+		s.cfg.JWTIssuer,
+		s.cfg.JWTAudience,
+		userID,
+		username,
+		role,
+		siteID,
+		30*time.Second,
+	)
+}

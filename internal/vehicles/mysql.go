@@ -6,30 +6,57 @@ import (
 
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
+	"parking-backend/internal/platform/outbox"
 )
 
 type mysqlRepo struct {
-	db *sql.DB
+	db     *sql.DB
+	outbox *outbox.Store
 }
 
 func NewMySQLRepository(db *sql.DB) Repository {
 	return &mysqlRepo{db: db}
 }
 
+// NewSQLiteRepository usa el mismo contrato y esquema lógico que MySQL.
+func NewSQLiteRepository(db *sql.DB) Repository {
+	return &mysqlRepo{db: db, outbox: outbox.NewStore(db)}
+}
+
 func (r *mysqlRepo) Create(v *Vehicle) error {
 	idBin := ids.UUIDv7()
 	v.ID = ids.Bin16ToString(idBin)
-	query := `INSERT INTO vehicles (id, plate_normalized, plate_raw, type_id, customer_id, is_active)
-              VALUES (?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO vehicles (id, plate_normalized, plate_raw, type_id, customer_id, is_active, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`
 	var customerID []byte
 	if v.CustomerID != nil && *v.CustomerID != "" {
 		customerID = ids.StringToBin16(*v.CustomerID)
 	}
-	_, err := r.db.Exec(query, idBin, v.PlateNormalized, v.PlateRaw, ids.StringToBin16(v.TypeID), customerID, v.IsActive)
+	now := time.Now().UTC()
+	tx, err := r.db.Begin()
 	if err != nil {
 		return apperr.From(err)
 	}
-	v.CreatedAt = time.Now().UTC()
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(query, idBin, v.PlateNormalized, v.PlateRaw, ids.StringToBin16(v.TypeID), customerID, v.IsActive, now)
+	if err != nil {
+		return apperr.From(err)
+	}
+	if err := r.outbox.EnqueueTx(tx, "vehicle", v.ID, "vehicle.created", map[string]any{
+		"vehicle_id":       v.ID,
+		"plate_normalized": v.PlateNormalized,
+		"plate_raw":        v.PlateRaw,
+		"type_id":          v.TypeID,
+		"customer_id":      v.CustomerID,
+		"is_active":        v.IsActive,
+	}); err != nil {
+		return apperr.From(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return apperr.From(err)
+	}
+	v.CreatedAt = now
 	return nil
 }
 

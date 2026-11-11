@@ -113,14 +113,33 @@ func (h *Handler) GetSubscription(w http.ResponseWriter, r *http.Request) {
 		httpserver.Error(w, err)
 		return
 	}
+	if err := middleware.CheckSiteAccess(r.Context(), sub.SiteID); err != nil {
+		httpserver.Error(w, err)
+		return
+	}
 	httpserver.JSON(w, http.StatusOK, sub)
 }
 
 func (h *Handler) CancelSubscription(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	sub, err := h.svc.Get(id)
+	if err != nil {
+		httpserver.Error(w, err)
+		return
+	}
+	if err := middleware.CheckSiteAccess(r.Context(), sub.SiteID); err != nil {
+		httpserver.Error(w, err)
+		return
+	}
 	if err := h.svc.Cancel(id); err != nil {
 		httpserver.Error(w, err)
 		return
+	}
+	if h.auditor != nil {
+		_ = h.auditor.Record(r.Context(), "subscription.cancel", "subscription", sub.ID,
+			map[string]any{"status": sub.Status},
+			map[string]any{"site_id": sub.SiteID, "status": SubCancelled},
+		)
 	}
 	httpserver.NoContent(w)
 }

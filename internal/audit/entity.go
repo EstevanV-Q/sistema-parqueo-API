@@ -6,6 +6,7 @@ import "time"
 type Entry struct {
 	ID         string         `json:"id"`
 	UserID     *string        `json:"user_id,omitempty"`
+	SiteID     *string        `json:"site_id,omitempty"`
 	Action     string         `json:"action"`
 	EntityType string         `json:"entity_type"`
 	EntityID   *string        `json:"entity_id,omitempty"`
@@ -21,6 +22,7 @@ type Filter struct {
 	EntityType string
 	EntityID   string
 	UserID     string
+	SiteID     string
 	Action     string
 	From       string
 	To         string

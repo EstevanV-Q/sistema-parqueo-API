@@ -18,11 +18,6 @@ http:
       }
 
 runtime:
-  variables:
-    - name: adminUser
-      value: admin
-    - name: adminPassword
-      value: Admin123!
   scripts:
     - type: after-response
       code: |-

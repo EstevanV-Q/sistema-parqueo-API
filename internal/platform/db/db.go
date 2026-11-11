@@ -26,10 +26,22 @@ func New(cfg *config.Config) (*sql.DB, error) {
 		return nil, fmt.Errorf("error al abrir conexión: %w", err)
 	}
 
-	// 3. Configurar el pool de conexiones (buena práctica de producción)
-	db.SetMaxOpenConns(25)                 // Máximo 25 conexiones abiertas simultáneas
-	db.SetMaxIdleConns(25)                 // Máximo 25 conexiones inactivas esperando trabajo
-	db.SetConnMaxLifetime(5 * time.Minute) // Renovar conexiones cada 5 minutos
+	// 3. Configurar el pool de conexiones según la configuración de la aplicación.
+	maxOpen := cfg.DBMaxOpen
+	if maxOpen <= 0 {
+		maxOpen = 25
+	}
+	maxIdle := cfg.DBMaxIdle
+	if maxIdle <= 0 {
+		maxIdle = 25
+	}
+	maxLife := cfg.DBMaxLife
+	if maxLife <= 0 {
+		maxLife = 5 * time.Minute
+	}
+	db.SetMaxOpenConns(maxOpen)
+	db.SetMaxIdleConns(maxIdle)
+	db.SetConnMaxLifetime(maxLife)
 
 	// 4. Probar que realmente haya comunicación con MySQL
 	if err := db.Ping(); err != nil {

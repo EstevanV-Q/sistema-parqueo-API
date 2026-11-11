@@ -64,6 +64,49 @@ go run ./cmd/api
 
 La API escucha en `http://localhost:8080`.
 
+### Pruebas de humo de los endpoints
+
+Con la API levantada y un usuario `admin` sembrado:
+
+```powershell
+$env:SMOKE_ADMIN_PASSWORD = '<contraseña del admin>'
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\smoke-api.ps1
+```
+
+El script recorre salud, autenticación, catálogo, vehículos, clientes,
+tarifas, tickets, pagos, abonos, dispositivos, reportes, auditoría y
+WebSocket. Para probar la API de borde SQLite, define también
+`SMOKE_BASE=http://127.0.0.1:8082`. Crea datos de prueba, por lo que debe
+ejecutarse solo en desarrollo.
+
+### API de borde (operación offline)
+
+Cada sede puede ejecutar una instancia local con SQLite. La operación de
+tickets, pagos, abonados y dispositivos funciona sin conexión; los cambios se
+guardan en una outbox transaccional y se envían al central cuando hay red.
+
+```bash
+# Variables mínimas para el borde
+DB_DRIVER=sqlite
+SQLITE_PATH=./data/edge.db
+JWT_SECRET=<secreto-largo-y-aleatorio>
+SEED_ADMIN_PASSWORD=<mínimo-12>
+SEED_OPERATOR_PASSWORD=<mínimo-12>
+SEED_AUDITOR_PASSWORD=<mínimo-12>
+SEED_DEVICE_API_KEY=<mínimo-16>
+
+# Crea el esquema y los datos mínimos de la sede
+go run ./cmd/seed
+
+# API local de la sede
+go run ./cmd/api
+```
+
+La outbox se sincroniza con `SYNC_URL` y `SYNC_TOKEN`; si `SYNC_URL` está
+vacío, el borde sigue operando y guarda los eventos localmente. El central
+expone `POST /api/v1/sync/events` para recibir los eventos de forma idempotente
+en `sync_inbox` (requiere `SYNC_TOKEN` y el encabezado `X-Site-ID`).
+
 ## Endpoints principales
 
 ### Auth (público, excepto register)
@@ -71,6 +114,7 @@ La API escucha en `http://localhost:8080`.
 - `POST /api/v1/auth/refresh` — renovar access token
 - `POST /api/v1/auth/logout` — cerrar sesión
 - `GET /api/v1/auth/me` — usuario autenticado
+- `POST /api/v1/auth/ws-ticket` — ticket efímero para WebSocket (autenticado)
 - `POST /api/v1/auth/register` — crear usuario (solo admin)
 
 ### Parqueo (tickets)
@@ -108,7 +152,7 @@ La API escucha en `http://localhost:8080`.
 - `GET /api/v1/devices` — listar dispositivos
 
 ### Tiempo real
-- `GET /ws/occupancy?site_id=` — WebSocket de ocupación
+- `GET /api/v1/ws/occupancy?site_id=&ticket=` — WebSocket de ocupación (ticket de `/auth/ws-ticket`)
 
 ### Salud
 - `GET /healthz` — liveness
@@ -116,31 +160,36 @@ La API escucha en `http://localhost:8080`.
 
 ## Datos de demostración (seed)
 
-Después de `go run cmd/seed/main.go`:
-
-| Usuario | Contraseña | Rol |
-|---|---|---|
-| admin | Admin123! | admin |
-| operador | Oper123! | operator |
+El seed usa usuarios `admin`, `operador` y `auditor`, pero no define contraseñas
+por defecto. Antes de ejecutarlo configura `SEED_ADMIN_PASSWORD`,
+`SEED_OPERATOR_PASSWORD`, `SEED_AUDITOR_PASSWORD` y `SEED_DEVICE_API_KEY`.
 
 - **Sede**: Centro Comercial Plaza (PLAZA-01)
 - **Espacios**: A-01 a A-10 (zona General - Carros)
 - **Vehículo abonado**: XYZ-987 (plan Mensual Carro, 30 días)
-- **Dispositivo**: Barrera Principal (API key: `device-api-key-001`)
+- **Dispositivo**: Barrera Principal (clave tomada de `SEED_DEVICE_API_KEY`)
 
 ## Arquitectura
 
-Capas estrictas: `handler → service → repository (interfaz) → MySQL`.
+Capas estrictas: `handler → service → repository (interfaz) → MySQL/SQLite`.
 El dominio y el motor de tarifas son puros (sin dependencias de infraestructura).
+
+- **Central**: MySQL, catálogo/tarifas/usuarios, consolidación y reportes.
+- **Borde**: API por sede con SQLite WAL, login offline con hashes cacheados,
+  tickets y pagos locales, y outbox transaccional hacia el central.
+- **Sincronización**: eventual e idempotente por evento; el central recibe en
+  `sync_inbox` y no edita tickets/pagos del borde en v1.
+- **Consistencia**: una operación local y su evento de outbox se confirman en
+  la misma transacción. Los conflictos quedan visibles para revisión.
 
 ## Próximos pasos (pendiente)
 
+- Procesador del `sync_inbox` para consolidar tickets/pagos en tablas centrales.
+- Descarga de catálogo/tarifas/usuarios desde el central hacia el borde.
+- Panel de conflictos y reintentos manuales de sincronización.
 - Swagger/OpenAPI (`/swagger/*`)
-- Tests de integración con MySQL real (testcontainers)
 - Frontend (React/Vue/Go templates)
-- Simulación offline (cola SQLite + sincronización)
-- Auditoría completa (`audit_log`)
-- CI (lint + test + build)
+- Tests de integración con MySQL real (testcontainers)
 
 ## Licencia
 

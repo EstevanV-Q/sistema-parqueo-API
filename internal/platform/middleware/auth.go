@@ -35,9 +35,13 @@ func (m *AuthMiddleware) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		claims, err := security.ParseAccessToken(m.cfg.JWTSecret, parts[1])
+		claims, err := security.ParseAccessToken(m.cfg.JWTSecret, m.cfg.JWTIssuer, m.cfg.JWTAudience, parts[1])
 		if err != nil {
 			httpserver.Error(w, apperr.New(apperr.ErrUnauthorized, "token inválido o expirado", http.StatusUnauthorized, err))
+			return
+		}
+		if claims.UserID == "" || claims.Role == "" {
+			httpserver.Error(w, apperr.New(apperr.ErrUnauthorized, "token inválido o expirado", http.StatusUnauthorized, nil))
 			return
 		}
 
@@ -106,6 +110,7 @@ func CORS(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Add("Vary", "Origin")
 
 		if origin != "" && originPermitido(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)

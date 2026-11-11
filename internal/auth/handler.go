@@ -37,6 +37,34 @@ type tokenResp struct {
 	ExpiresIn    int    `json:"expires_in,omitempty"`
 }
 
+// userResp es el DTO público de usuario. Nunca debe incluir PasswordHash.
+type userResp struct {
+	ID        string  `json:"id"`
+	Username  string  `json:"username"`
+	Email     string  `json:"email"`
+	Role      Role    `json:"role"`
+	SiteID    *string `json:"site_id,omitempty"`
+	Active    bool    `json:"active"`
+	CreatedAt string  `json:"created_at,omitempty"`
+	LastLogin *string `json:"last_login,omitempty"`
+}
+
+func toUserResp(u *User) userResp {
+	if u == nil {
+		return userResp{}
+	}
+	return userResp{
+		ID:        u.ID,
+		Username:  u.Username,
+		Email:     u.Email,
+		Role:      u.Role,
+		SiteID:    u.SiteID,
+		Active:    u.Active,
+		CreatedAt: u.CreatedAt,
+		LastLogin: u.LastLogin,
+	}
+}
+
 func userID(r *http.Request) string {
 	if v, ok := ctx.UserIDFromCtx(r.Context()); ok {
 		return v
@@ -65,7 +93,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		httpserver.Error(w, err)
 		return
 	}
-	httpserver.JSON(w, http.StatusCreated, map[string]any{"user": u})
+	httpserver.JSON(w, http.StatusCreated, map[string]any{"user": toUserResp(u)})
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
@@ -144,12 +172,31 @@ func (h *Handler) MeHandler(w http.ResponseWriter, r *http.Request) {
 		httpserver.Error(w, err)
 		return
 	}
+	httpserver.JSON(w, http.StatusOK, toUserResp(u))
+}
+
+// WSTicketHandler emite un token efímero para abrir el WebSocket sin exponer
+// el access token de larga vida en la URL.
+func (h *Handler) WSTicketHandler(w http.ResponseWriter, r *http.Request) {
+	uid, _ := ctx.UserIDFromCtx(r.Context())
+	username, _ := ctx.UsernameFromCtx(r.Context())
+	role, _ := ctx.RoleFromCtx(r.Context())
+	siteID, hasSite := ctx.SiteIDFromCtx(r.Context())
+	if uid == "" || role == "" {
+		httpserver.Error(w, apperr.New(apperr.ErrUnauthorized, "no autenticado", http.StatusUnauthorized, nil))
+		return
+	}
+	var sitePtr *string
+	if hasSite && siteID != "" {
+		sitePtr = &siteID
+	}
+	token, expiresAt, err := h.svc.WSTicket(uid, username, role, sitePtr)
+	if err != nil {
+		httpserver.Error(w, err)
+		return
+	}
 	httpserver.JSON(w, http.StatusOK, map[string]any{
-		"id":       u.ID,
-		"username": u.Username,
-		"email":    u.Email,
-		"role":     u.Role,
-		"site_id":  u.SiteID,
-		"active":   u.Active,
+		"ticket":     token,
+		"expires_at": expiresAt.UTC().Format("2006-01-02T15:04:05Z"),
 	})
 }

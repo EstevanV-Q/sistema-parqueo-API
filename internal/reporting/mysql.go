@@ -16,6 +16,11 @@ func NewMySQLRepository(db *sql.DB) Repository {
 	return &mysqlRepo{db: db}
 }
 
+// NewSQLiteRepository usa el mismo contrato y esquema lógico que MySQL.
+func NewSQLiteRepository(db *sql.DB) Repository {
+	return &mysqlRepo{db: db}
+}
+
 func (r *mysqlRepo) Ocupacion(siteID string) (*Ocupacion, error) {
 	var siteName string
 	if err := r.db.QueryRow(`SELECT name FROM sites WHERE id = ? LIMIT 1`, ids.StringToBin16(siteID)).Scan(&siteName); err != nil {

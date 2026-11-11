@@ -62,7 +62,7 @@ func main() {
 		eventType = flag.String("type", "entry", "entry | exit | heartbeat")
 		plateRaw  = flag.String("plate", "", "placa del vehículo")
 		apiURL    = flag.String("api", "http://localhost:8080/api/v1/devices/events", "URL de eventos de la API")
-		deviceKey = flag.String("device-key", "device-api-key-001", "API key del dispositivo")
+		deviceKey = flag.String("device-key", os.Getenv("DEVICE_API_KEY"), "API key del dispositivo (o DEVICE_API_KEY)")
 	)
 	flag.Parse()
 
@@ -103,6 +103,10 @@ func main() {
 		fmt.Printf("evento encolado: id=%s tipo=%s placa=%s pendientes=%d\n", eventID, mappedType, normalized, q.Len())
 
 	case "sync":
+		if *deviceKey == "" {
+			fmt.Fprintln(os.Stderr, "la API key del dispositivo es requerida (-device-key o DEVICE_API_KEY)")
+			os.Exit(1)
+		}
 		remote := &httpRemote{
 			url:    *apiURL,
 			apiKey: *deviceKey,

@@ -38,6 +38,11 @@ func (s *Service) Record(ctx context.Context, action, entityType, entityID strin
 	if uid, ok := ctxpkg.UserIDFromCtx(ctx); ok && uid != "" {
 		e.UserID = &uid
 	}
+	if sid, ok := ctxpkg.SiteIDFromCtx(ctx); ok && sid != "" {
+		e.SiteID = &sid
+	} else if v, ok := newValues["site_id"].(string); ok && v != "" {
+		e.SiteID = &v
+	}
 	if ip, ok := ctxpkg.IPFromCtx(ctx); ok && ip != "" {
 		e.IPAddress = &ip
 	}

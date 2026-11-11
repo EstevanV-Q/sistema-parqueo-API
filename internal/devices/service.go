@@ -138,9 +138,14 @@ func (s *Service) ProcessEvent(device *Device, eventID, eventType, plateNormaliz
 			if !allow {
 				decision = DecisionDeny
 			} else if s.ticketCreator != nil {
-				if ticketID, err := s.ticketCreator.AutoEnter(device.SiteID, plateNormalized); err == nil && ticketID != "" {
-					reason = fmt.Sprintf("entrada autorizada (ticket %s)", ticketID)
+				ticketID, err := s.ticketCreator.AutoEnter(device.SiteID, plateNormalized)
+				if err != nil {
+					return nil, err
 				}
+				if ticketID == "" {
+					return nil, apperr.New(apperr.ErrInternal, "no se pudo registrar la entrada automática", 500, nil)
+				}
+				reason = fmt.Sprintf("entrada autorizada (ticket %s)", ticketID)
 			}
 		} else {
 			reason = "entrada autorizada"

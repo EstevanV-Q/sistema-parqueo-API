@@ -6,12 +6,12 @@ services:
     env_file:
       - .env
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-parking_db}
-      MYSQL_USER: ${MYSQL_USER:-parking_user}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-parking_pass}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD es requerido}
+      MYSQL_DATABASE: ${DB_NAME:-parking_db}
+      MYSQL_USER: ${DB_USER:-parking_user}
+      MYSQL_PASSWORD: ${DB_PASS:?DB_PASS es requerido}
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     command:
@@ -35,26 +35,32 @@ services:
       mysql:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     env_file:
       - .env
     environment:
+      DB_DRIVER: mysql
       DB_HOST: mysql
-      DB_USER: ${MYSQL_USER}
-      DB_PASS: ${MYSQL_PASSWORD}
-      DB_NAME: ${MYSQL_DATABASE}
+      DB_USER: ${DB_USER:-parking_user}
+      DB_PASS: ${DB_PASS:?DB_PASS es requerido}
+      DB_NAME: ${DB_NAME:-parking_db}
+      SYNC_TOKEN: ${SYNC_TOKEN:-}
       PORT: ${PORT:-8080}
       ENV: ${ENV:-development}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET es requerido}
+      JWT_ISSUER: ${JWT_ISSUER:-parking-backend}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-parking-api}
       JWT_ACCESS: ${JWT_ACCESS:-15m}
       JWT_REFRESH: ${JWT_REFRESH:-72h}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8080}
       SITE_TIMEZONE: ${SITE_TIMEZONE:-America/Bogota}
+      DEFAULT_VEHICLE_TYPE_CODE: ${DEFAULT_VEHICLE_TYPE_CODE:-car}
       READ_TIMEOUT: ${READ_TIMEOUT:-10s}
       WRITE_TIMEOUT: ${WRITE_TIMEOUT:-10s}
       IDLE_TIMEOUT: ${IDLE_TIMEOUT:-60s}
     healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1" ]
+      test: [ "CMD", "/bin/healthcheck" ]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -72,6 +78,9 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

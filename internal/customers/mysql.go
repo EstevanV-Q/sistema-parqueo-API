@@ -6,33 +6,60 @@ import (
 
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
+	"parking-backend/internal/platform/outbox"
 )
 
 type mysqlRepo struct {
-	db *sql.DB
+	db     *sql.DB
+	outbox *outbox.Store
 }
 
 func NewMySQLRepository(db *sql.DB) Repository {
 	return &mysqlRepo{db: db}
 }
 
+// NewSQLiteRepository usa el mismo contrato y esquema lógico que MySQL.
+func NewSQLiteRepository(db *sql.DB) Repository {
+	return &mysqlRepo{db: db, outbox: outbox.NewStore(db)}
+}
+
 func (r *mysqlRepo) Create(c *Customer) error {
 	idBin := ids.UUIDv7()
 	c.ID = ids.Bin16ToString(idBin)
-	query := `INSERT INTO customers (id, document, name, phone, email, is_active)
-              VALUES (?, ?, ?, ?, ?, ?)`
-	var phone, email []byte
+	query := `INSERT INTO customers (id, document, name, phone, email, is_active, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`
+	var phone, email any
 	if c.Phone != nil && *c.Phone != "" {
-		phone = []byte(*c.Phone)
+		phone = *c.Phone
 	}
 	if c.Email != nil && *c.Email != "" {
-		email = []byte(*c.Email)
+		email = *c.Email
 	}
-	_, err := r.db.Exec(query, idBin, c.Document, c.Name, phone, email, c.IsActive)
+	now := time.Now().UTC()
+	tx, err := r.db.Begin()
 	if err != nil {
 		return apperr.From(err)
 	}
-	c.CreatedAt = time.Now().UTC()
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(query, idBin, c.Document, c.Name, phone, email, c.IsActive, now)
+	if err != nil {
+		return apperr.From(err)
+	}
+	if err := r.outbox.EnqueueTx(tx, "customer", c.ID, "customer.created", map[string]any{
+		"customer_id": c.ID,
+		"document":    c.Document,
+		"name":        c.Name,
+		"phone":       c.Phone,
+		"email":       c.Email,
+		"is_active":   c.IsActive,
+	}); err != nil {
+		return apperr.From(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return apperr.From(err)
+	}
+	c.CreatedAt = now
 	return nil
 }
 

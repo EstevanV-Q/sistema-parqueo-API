@@ -87,3 +87,13 @@ func (s *Service) ValidateByPlate(plateNormalized, siteID string, now time.Time)
 		Status:    sub.Status,
 	}, nil
 }
+
+// SubscriptionSite devuelve el siteID de la suscripción indicada.
+// Implementa billing.SiteResolver.
+func (s *Service) SubscriptionSite(subscriptionID string) (string, error) {
+	sub, err := s.repo.ByID(subscriptionID)
+	if err != nil {
+		return "", err
+	}
+	return sub.SiteID, nil
+}

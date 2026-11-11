@@ -14,13 +14,41 @@ import (
 	"parking-backend/internal/shared/pagination"
 )
 
-type Handler struct {
-	svc     *Service
-	auditor *audit.Service
+// SiteResolver resuelve la sede de un ticket o abono para aplicar autorización
+// horizontal en pagos.
+type SiteResolver interface {
+	TicketSite(ticketID string) (string, error)
+	SubscriptionSite(subscriptionID string) (string, error)
 }
 
-func NewHandler(svc *Service, auditor *audit.Service) *Handler {
-	return &Handler{svc: svc, auditor: auditor}
+type Handler struct {
+	svc      *Service
+	auditor  *audit.Service
+	resolver SiteResolver
+}
+
+func NewHandler(svc *Service, auditor *audit.Service, resolver SiteResolver) *Handler {
+	return &Handler{svc: svc, auditor: auditor, resolver: resolver}
+}
+
+func nonEmpty(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
+func (h *Handler) paymentSite(p *Payment) (string, error) {
+	if h.resolver == nil {
+		return "", apperr.New(apperr.ErrInternal, "error interno", http.StatusInternalServerError, nil)
+	}
+	if p.TicketID != nil && *p.TicketID != "" {
+		return h.resolver.TicketSite(*p.TicketID)
+	}
+	if p.SubscriptionID != nil && *p.SubscriptionID != "" {
+		return h.resolver.SubscriptionSite(*p.SubscriptionID)
+	}
+	return "", apperr.New(apperr.ErrInvalidInput, "el pago no tiene ticket ni abono asociado", http.StatusBadRequest, nil)
 }
 
 type createPaymentReq struct {
@@ -45,6 +73,13 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ticketID := nonEmpty(req.TicketID)
+	subscriptionID := nonEmpty(req.SubscriptionID)
+	if (ticketID == "") == (subscriptionID == "") {
+		httpserver.Error(w, apperr.New(apperr.ErrInvalidInput, "debe indicar exactamente un ticket_id o subscription_id", http.StatusBadRequest, nil))
+		return
+	}
+
 	if req.Currency == "" {
 		req.Currency = "COP"
 	}
@@ -61,6 +96,26 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if h.resolver == nil {
+		httpserver.Error(w, apperr.New(apperr.ErrInternal, "error interno", http.StatusInternalServerError, nil))
+		return
+	}
+	var siteID string
+	var err error
+	if ticketID != "" {
+		siteID, err = h.resolver.TicketSite(ticketID)
+	} else {
+		siteID, err = h.resolver.SubscriptionSite(subscriptionID)
+	}
+	if err != nil {
+		httpserver.Error(w, err)
+		return
+	}
+	if err := middleware.CheckSiteAccess(r.Context(), siteID); err != nil {
+		httpserver.Error(w, err)
+		return
+	}
+
 	p, err := h.svc.RegisterPayment(req.TicketID, req.SubscriptionID, req.AmountCents, req.Currency, req.Method, req.Reference, req.CashierUserID, req.IdempotencyKey)
 	if err != nil {
 		httpserver.Error(w, err)
@@ -69,6 +124,7 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 
 	if h.auditor != nil {
 		_ = h.auditor.Record(r.Context(), "payment.create", "payment", p.ID, nil, map[string]any{
+			"site_id":         siteID,
 			"ticket_id":       p.TicketID,
 			"subscription_id": p.SubscriptionID,
 			"amount_cents":    p.AmountCents,
@@ -90,6 +146,21 @@ func (h *Handler) RefundPayment(w http.ResponseWriter, r *http.Request) {
 	var req refundReq
 	_ = httpserver.Decode(r, &req)
 
+	current, err := h.svc.repo.ByID(id)
+	if err != nil {
+		httpserver.Error(w, err)
+		return
+	}
+	siteID, err := h.paymentSite(current)
+	if err != nil {
+		httpserver.Error(w, err)
+		return
+	}
+	if err := middleware.CheckSiteAccess(r.Context(), siteID); err != nil {
+		httpserver.Error(w, err)
+		return
+	}
+
 	p, err := h.svc.RefundPayment(id, req.Reason)
 	if err != nil {
 		httpserver.Error(w, err)
@@ -99,7 +170,7 @@ func (h *Handler) RefundPayment(w http.ResponseWriter, r *http.Request) {
 	if h.auditor != nil {
 		_ = h.auditor.Record(r.Context(), "payment.refund", "payment", p.ID,
 			map[string]any{"status": PaymentCompleted},
-			map[string]any{"status": PaymentRefunded, "reason": req.Reason},
+			map[string]any{"site_id": siteID, "status": PaymentRefunded, "reason": req.Reason},
 		)
 	}
 
@@ -110,6 +181,15 @@ func (h *Handler) GetPayment(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	p, err := h.svc.repo.ByID(id)
 	if err != nil {
+		httpserver.Error(w, err)
+		return
+	}
+	siteID, err := h.paymentSite(p)
+	if err != nil {
+		httpserver.Error(w, err)
+		return
+	}
+	if err := middleware.CheckSiteAccess(r.Context(), siteID); err != nil {
 		httpserver.Error(w, err)
 		return
 	}

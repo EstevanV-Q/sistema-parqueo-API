@@ -1,6 +1,7 @@
 package devices_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -82,9 +83,14 @@ func (f *fakeGate) AuthorizeExit(siteID, plateNormalized string) (bool, string, 
 	return f.allow, f.reason, f.err
 }
 
-type fakeTicketCreator struct{}
+type fakeTicketCreator struct {
+	err error
+}
 
 func (f *fakeTicketCreator) AutoEnter(siteID, plateNormalized string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
 	return "ticket-123", nil
 }
 
@@ -175,6 +181,25 @@ func TestProcessEvent_EntryDetected(t *testing.T) {
 	}
 	if event.PlateNormalized == nil || *event.PlateNormalized != "XYZ987" {
 		t.Fatalf("placa inesperada: %v", event.PlateNormalized)
+	}
+}
+
+func TestProcessEvent_EntryDetectedFailsClosedWhenAutoEnterFails(t *testing.T) {
+	repo := &fakeRepo{
+		devices:  map[string]*devices.Device{},
+		byAPIKey: map[string]*devices.Device{},
+		events:   map[string]*devices.DeviceEvent{},
+	}
+	s := devices.NewService(repo).
+		WithGate(&fakeGate{allow: true}).
+		WithTicketCreator(&fakeTicketCreator{err: errors.New("tipo de vehículo no resuelto")})
+
+	d, _ := s.RegisterDevice("site-1", "Barrera", "barrier", "key")
+	if _, err := s.ProcessEvent(d, "evt-auto-fail", devices.EventEntryDetected, "XYZ987"); err == nil {
+		t.Fatal("la entrada debe fallar si AutoEnter falla")
+	}
+	if len(repo.events) != 0 {
+		t.Fatalf("no debe registrar un evento allow; hay %d", len(repo.events))
 	}
 }
 
