@@ -64,6 +64,16 @@ go run ./cmd/api
 
 La API escucha en `http://localhost:8080`.
 
+### Verificar la conexión a la base de datos
+
+```bash
+go run ./cmd/dbcheck
+# o: make dbcheck
+```
+
+El comando lee `.env`, prueba la conexión y lista las tablas del esquema. Si
+faltan tablas, indica ejecutar `go run cmd/migrate/main.go up`.
+
 ### Pruebas de humo de los endpoints
 
 Con la API levantada y un usuario `admin` sembrado:

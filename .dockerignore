@@ -1,6 +1,7 @@
 .git/
 .gitignore
 .env
+.env.vps
 .env.example
 vendor/
 *.exe

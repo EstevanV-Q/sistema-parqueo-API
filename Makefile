@@ -1,4 +1,4 @@
-.PHONY: run build test migrate-up migrate-down lint
+.PHONY: run build test migrate-up migrate-down dbcheck lint
 
 run:
 	go run ./cmd/api
@@ -14,6 +14,9 @@ migrate-up:
 
 migrate-down:
 	go run cmd/migrate/main.go down
+
+dbcheck:
+	go run ./cmd/dbcheck
 
 lint:
 	golangci-lint run ./... 2>/dev/null || echo "golangci-lint no instalado"

@@ -4,6 +4,7 @@
 
 # Entorno
 .env
+.env.vps
 .venv/
 
 # IDE
