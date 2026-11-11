@@ -206,6 +206,8 @@ El dominio y el motor de tarifas son puros (sin dependencias de infraestructura)
   En producción no se acepta el token global.
 - `GET /api/v1/devices` es solo para `admin` y nunca devuelve el hash de la API
   key del dispositivo.
+- Si los hashes de dispositivos pudieron exponerse, rota las claves con
+  `go run ./cmd/rotate-device-keys -yes` y guarda las claves nuevas.
 - Aplica migraciones antes de arrancar: `go run cmd/migrate/main.go up`.
 - Verifica la conexión y el esquema con `go run ./cmd/dbcheck`.
 

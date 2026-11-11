@@ -252,6 +252,9 @@ func (c *Config) validate() error {
 	if c.SyncURL != "" && c.SyncToken == "" {
 		return fmt.Errorf("SYNC_TOKEN es requerido cuando SYNC_URL está configurado")
 	}
+	if c.Env == "production" && c.SyncURL != "" && !strings.HasPrefix(strings.ToLower(c.SyncURL), "https://") {
+		return fmt.Errorf("SYNC_URL debe usar HTTPS en producción")
+	}
 	if c.Env == "production" {
 		if c.SyncToken != "" && len(c.SyncToken) < 32 {
 			return fmt.Errorf("SYNC_TOKEN debe tener al menos 32 caracteres en producción")
