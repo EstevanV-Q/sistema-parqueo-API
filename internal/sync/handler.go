@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
+	"mime"
 	"net/http"
 	"strings"
 	"time"
@@ -16,12 +17,17 @@ import (
 // Handler recibe eventos de las APIs de borde y los deja en sync_inbox.
 // El procesamiento posterior es idempotente y puede reintentarse sin duplicar.
 type Handler struct {
-	db    *sql.DB
-	token string
+	db         *sql.DB
+	token      string
+	siteTokens map[string]string
 }
 
-func NewHandler(db *sql.DB, token string) *Handler {
-	return &Handler{db: db, token: token}
+func NewHandler(db *sql.DB, token string, siteTokens ...map[string]string) *Handler {
+	var tokens map[string]string
+	if len(siteTokens) > 0 {
+		tokens = siteTokens[0]
+	}
+	return &Handler{db: db, token: token, siteTokens: tokens}
 }
 
 type ingestRequest struct {
@@ -34,16 +40,8 @@ type ingestRequest struct {
 }
 
 func (h *Handler) Ingest(w http.ResponseWriter, r *http.Request) {
-	if h.token == "" {
+	if h.token == "" && len(h.siteTokens) == 0 {
 		httpserver.Error(w, apperr.New(apperr.ErrNotFound, "sincronización no habilitada", http.StatusNotFound, nil))
-		return
-	}
-
-	authorization := r.Header.Get("Authorization")
-	const prefix = "Bearer "
-	if !strings.HasPrefix(authorization, prefix) ||
-		subtle.ConstantTimeCompare([]byte(strings.TrimPrefix(authorization, prefix)), []byte(h.token)) != 1 {
-		httpserver.Error(w, apperr.New(apperr.ErrUnauthorized, "token de sincronización inválido", http.StatusUnauthorized, nil))
 		return
 	}
 
@@ -54,7 +52,28 @@ func (h *Handler) Ingest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	expected := h.token
+	if len(h.siteTokens) > 0 {
+		expected = h.siteTokens[siteID]
+	}
+	if expected == "" {
+		httpserver.Error(w, apperr.New(apperr.ErrUnauthorized, "sincronización no autorizada para esta sede", http.StatusUnauthorized, nil))
+		return
+	}
+	authorization := r.Header.Get("Authorization")
+	const prefix = "Bearer "
+	if !strings.HasPrefix(authorization, prefix) ||
+		subtle.ConstantTimeCompare([]byte(strings.TrimPrefix(authorization, prefix)), []byte(expected)) != 1 {
+		httpserver.Error(w, apperr.New(apperr.ErrUnauthorized, "token de sincronización inválido", http.StatusUnauthorized, nil))
+		return
+	}
+
 	var req ingestRequest
+	mediaType, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if mediaType != "application/json" {
+		httpserver.Error(w, apperr.New(apperr.ErrUnsupportedMedia, "Content-Type debe ser application/json", http.StatusUnsupportedMediaType, nil))
+		return
+	}
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
@@ -70,8 +89,13 @@ func (h *Handler) Ingest(w http.ResponseWriter, r *http.Request) {
 		httpserver.Error(w, apperr.New(apperr.ErrInvalidInput, "evento de sincronización incompleto", http.StatusBadRequest, nil))
 		return
 	}
+	now := time.Now().UTC()
 	if req.CreatedAt.IsZero() {
-		req.CreatedAt = time.Now().UTC()
+		req.CreatedAt = now
+	}
+	if req.CreatedAt.Before(now.Add(-7*24*time.Hour)) || req.CreatedAt.After(now.Add(24*time.Hour)) {
+		httpserver.Error(w, apperr.New(apperr.ErrInvalidInput, "created_at fuera de la ventana permitida", http.StatusBadRequest, nil))
+		return
 	}
 
 	var active bool

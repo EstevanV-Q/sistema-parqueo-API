@@ -69,8 +69,11 @@ func (r *mysqlRepo) Create(t *Ticket) error {
 	if err := r.outbox.EnqueueTx(tx, "ticket", t.ID, "ticket.entered", map[string]any{
 		"ticket_id":        t.ID,
 		"site_id":          t.SiteID,
+		"zone_id":          t.ZoneID,
 		"space_id":         t.SpaceID,
+		"vehicle_id":       t.VehicleID,
 		"plate_normalized": t.PlateNormalized,
+		"plate_raw":        t.PlateRaw,
 		"type_id":          t.TypeID,
 		"rate_plan_id":     t.RatePlanID,
 		"entry_at":         t.EntryAt,

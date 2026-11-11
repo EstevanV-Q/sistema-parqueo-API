@@ -92,6 +92,7 @@ func FromErr(err error) error {
 const (
 	ErrInternal           = "INTERNAL"
 	ErrInvalidInput       = "INVALID_INPUT"
+	ErrUnsupportedMedia   = "UNSUPPORTED_MEDIA_TYPE"
 	ErrNotFound           = "NOT_FOUND"
 	ErrAlreadyExists      = "ALREADY_EXISTS"
 	ErrUnauthorized       = "UNAUTHORIZED"

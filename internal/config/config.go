@@ -1,8 +1,10 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -27,12 +29,26 @@ type Config struct {
 	DBMaxOpen  int
 	DBMaxIdle  int
 	DBMaxLife  time.Duration
+	DBTLS      string
+	DBTLSCA    string
+	DBTimeout  time.Duration
+	DBRead     time.Duration
+	DBWrite    time.Duration
 
 	// Sincronización del borde con la API central
-	EdgeSiteID   string
-	SyncURL      string
-	SyncToken    string
-	SyncInterval time.Duration
+	EdgeSiteID            string
+	SyncURL               string
+	SyncToken             string
+	SyncSiteTokens        map[string]string
+	SyncInterval          time.Duration
+	SyncProcessorInterval time.Duration
+
+	// Seguridad
+	TokenPepper       string
+	TrustProxyHeaders bool
+
+	// Permite ejecutar el seed en producción de forma explícita.
+	AllowSeed bool
 
 	// Seguridad JWT
 	JWTSecret   string
@@ -97,11 +113,22 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("variables de entorno requeridas no definidas: %s", strings.Join(missing, ", "))
 	}
 
-	// Advertencia si JWT_SECRET es débil en producción
-	env := getEnv("ENV", "development")
+	// Advertencia si JWT_SECRET o TOKEN_PEPPER son débiles en producción.
+	env := strings.ToLower(strings.TrimSpace(getEnv("ENV", "development")))
 	jwtSecret := getEnv("JWT_SECRET", "")
-	if env == "production" && isWeakSecret(jwtSecret) {
-		return nil, fmt.Errorf("JWT_SECRET no cumple requisitos de seguridad en entorno de producción")
+	tokenPepper := getEnv("TOKEN_PEPPER", "")
+	if env == "production" {
+		if isWeakSecret(jwtSecret) {
+			return nil, fmt.Errorf("JWT_SECRET no cumple requisitos de seguridad en entorno de producción")
+		}
+		if len(tokenPepper) < 32 || isWeakSecret(tokenPepper) {
+			return nil, fmt.Errorf("TOKEN_PEPPER debe tener al menos 32 caracteres y no ser un placeholder en producción")
+		}
+	}
+
+	syncSiteTokens, err := getEnvJSONMap("SYNC_SITE_TOKENS")
+	if err != nil {
+		return nil, err
 	}
 
 	cfg := &Config{
@@ -119,11 +146,22 @@ func Load() (*Config, error) {
 		DBMaxOpen:  getEnvInt("DB_MAX_OPEN", 25),
 		DBMaxIdle:  getEnvInt("DB_MAX_IDLE", 25),
 		DBMaxLife:  getEnvDuration("DB_MAX_LIFE", "5m"),
+		DBTLS:      strings.ToLower(strings.TrimSpace(getEnv("DB_TLS", "false"))),
+		DBTLSCA:    getEnv("DB_TLS_CA", ""),
+		DBTimeout:  getEnvDuration("DB_CONNECT_TIMEOUT", "5s"),
+		DBRead:     getEnvDuration("DB_READ_TIMEOUT", "10s"),
+		DBWrite:    getEnvDuration("DB_WRITE_TIMEOUT", "10s"),
 
-		EdgeSiteID:   getEnv("EDGE_SITE_ID", ""),
-		SyncURL:      getEnv("SYNC_URL", ""),
-		SyncToken:    getEnv("SYNC_TOKEN", ""),
-		SyncInterval: getEnvDuration("SYNC_INTERVAL", "30s"),
+		EdgeSiteID:            getEnv("EDGE_SITE_ID", ""),
+		SyncURL:               getEnv("SYNC_URL", ""),
+		SyncToken:             getEnv("SYNC_TOKEN", ""),
+		SyncSiteTokens:        syncSiteTokens,
+		SyncInterval:          getEnvDuration("SYNC_INTERVAL", "30s"),
+		SyncProcessorInterval: getEnvDuration("SYNC_PROCESSOR_INTERVAL", "30s"),
+
+		TokenPepper:       tokenPepper,
+		TrustProxyHeaders: getEnvBool("TRUST_PROXY_HEADERS", false),
+		AllowSeed:         getEnvBool("ALLOW_SEED", false),
 
 		JWTSecret:          jwtSecret,
 		JWTIssuer:          getEnv("JWT_ISSUER", "parking-backend"),
@@ -167,6 +205,20 @@ func (c *Config) validate() error {
 	} else if c.DBUser == "" || c.DBPass == "" || c.DBName == "" {
 		return fmt.Errorf("DB_USER, DB_PASS y DB_NAME son requeridos")
 	}
+	switch c.DBTLS {
+	case "false", "true", "skip-verify", "preferred", "custom":
+	default:
+		return fmt.Errorf("DB_TLS debe ser false, true, skip-verify, preferred o custom")
+	}
+	if c.DBTLS == "custom" && strings.TrimSpace(c.DBTLSCA) == "" {
+		return fmt.Errorf("DB_TLS_CA es requerido cuando DB_TLS=custom")
+	}
+	if c.Env == "production" && !c.IsSQLite() && (c.DBTLS == "false" || c.DBTLS == "skip-verify" || c.DBTLS == "preferred") {
+		return fmt.Errorf("DB_TLS debe ser true o custom en producción")
+	}
+	if c.DBTimeout <= 0 || c.DBRead <= 0 || c.DBWrite <= 0 {
+		return fmt.Errorf("DB_CONNECT_TIMEOUT, DB_READ_TIMEOUT y DB_WRITE_TIMEOUT deben ser mayores a cero")
+	}
 	if c.JWTSecret == "" {
 		return fmt.Errorf("JWT_SECRET es requerido")
 	}
@@ -194,8 +246,24 @@ func (c *Config) validate() error {
 	if c.SyncInterval <= 0 {
 		return fmt.Errorf("SYNC_INTERVAL debe ser una duración válida mayor a cero")
 	}
+	if c.SyncProcessorInterval <= 0 {
+		return fmt.Errorf("SYNC_PROCESSOR_INTERVAL debe ser una duración válida mayor a cero")
+	}
 	if c.SyncURL != "" && c.SyncToken == "" {
 		return fmt.Errorf("SYNC_TOKEN es requerido cuando SYNC_URL está configurado")
+	}
+	if c.Env == "production" {
+		if c.SyncToken != "" && len(c.SyncToken) < 32 {
+			return fmt.Errorf("SYNC_TOKEN debe tener al menos 32 caracteres en producción")
+		}
+		if (c.SyncToken != "" || len(c.SyncSiteTokens) > 0) && len(c.SyncSiteTokens) == 0 && !c.IsSQLite() {
+			return fmt.Errorf("SYNC_SITE_TOKENS es requerido en producción para sincronización")
+		}
+		for siteID, token := range c.SyncSiteTokens {
+			if len(siteID) != 32 || len(token) < 32 {
+				return fmt.Errorf("SYNC_SITE_TOKENS inválido para la sede %s", siteID)
+			}
+		}
 	}
 	if c.IsSQLite() && c.SyncURL != "" && c.EdgeSiteID == "" {
 		return fmt.Errorf("EDGE_SITE_ID es requerido para sincronizar una sede")
@@ -211,21 +279,35 @@ func (c *Config) IsSQLite() bool {
 	return c.DBDriver == "sqlite"
 }
 
-// isWeakSecret detecta secretos por defecto o débiles.
+// isWeakSecret detecta secretos por defecto, placeholders o débiles.
 func isWeakSecret(secret string) bool {
+	lower := strings.ToLower(strings.TrimSpace(secret))
+	if lower == "" {
+		return true
+	}
 	weak := []string{
 		"dev-secret-change-me",
 		"change-me",
 		"secret",
 		"password",
 		"123456",
+		"parking-dev-secret-change-in-production",
 	}
 	for _, w := range weak {
-		if strings.EqualFold(secret, w) {
+		if lower == w {
 			return true
 		}
 	}
-	return false
+	// Rechazar placeholders y valores de ejemplo aunque sean largos.
+	for _, marker := range []string{
+		"cambiar", "change", "example", "placeholder", "tu-secreto",
+		"<", ">", "admin123", "device-api-key-001",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return len(secret) < 32
 }
 
 func getEnv(key, fallback string) string {
@@ -263,6 +345,32 @@ func getEnvInt(key string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	val := getEnv(key, "")
+	if val == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(val)
+	if err != nil {
+		return fallback
+	}
+	return b
+}
+
+// getEnvJSONMap lee un objeto JSON de variables de entorno, por ejemplo:
+// SYNC_SITE_TOKENS={"<site_id>":"<token>"}.
+func getEnvJSONMap(key string) (map[string]string, error) {
+	raw := strings.TrimSpace(getEnv(key, ""))
+	if raw == "" {
+		return nil, nil
+	}
+	out := map[string]string{}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, fmt.Errorf("%s debe ser un objeto JSON válido: %w", key, err)
+	}
+	return out, nil
 }
 
 func getEnvDuration(key, fallback string) time.Duration {

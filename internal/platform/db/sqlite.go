@@ -26,8 +26,12 @@ func OpenSQLite(path string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolver ruta SQLite: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(absolute), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(absolute), 0o700); err != nil {
 		return nil, fmt.Errorf("crear directorio SQLite: %w", err)
+	}
+	_ = os.Chmod(filepath.Dir(absolute), 0o700)
+	if err := ensureSQLiteFilePermissions(absolute); err != nil {
+		return nil, fmt.Errorf("asegurar permisos SQLite: %w", err)
 	}
 
 	dsn := fmt.Sprintf(
@@ -50,7 +54,61 @@ func OpenSQLite(path string) (*sql.DB, error) {
 		_ = database.Close()
 		return nil, fmt.Errorf("aplicar esquema SQLite: %w", err)
 	}
+	if err := ensureRefreshTokenColumns(database); err != nil {
+		_ = database.Close()
+		return nil, fmt.Errorf("migrar refresh_tokens SQLite: %w", err)
+	}
+	if err := ensureSQLiteFilePermissions(absolute); err != nil {
+		_ = database.Close()
+		return nil, fmt.Errorf("asegurar permisos SQLite: %w", err)
+	}
 	return database, nil
+}
+
+func ensureSQLiteFilePermissions(path string) error {
+	for _, name := range []string{path, path + "-wal", path + "-shm"} {
+		if err := os.Chmod(name, 0o600); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureRefreshTokenColumns(database *sql.DB) error {
+	rows, err := database.Query(`PRAGMA table_info(refresh_tokens)`)
+	if err != nil {
+		return err
+	}
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull, pk int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		columns[name] = true
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if !columns["family_id"] {
+		if _, err := database.Exec(`ALTER TABLE refresh_tokens ADD COLUMN family_id BLOB`); err != nil {
+			return err
+		}
+		if _, err := database.Exec(`UPDATE refresh_tokens SET family_id = id WHERE family_id IS NULL`); err != nil {
+			return err
+		}
+	}
+	if !columns["replaced_by"] {
+		if _, err := database.Exec(`ALTER TABLE refresh_tokens ADD COLUMN replaced_by BLOB`); err != nil {
+			return err
+		}
+	}
+	_, err = database.Exec(`CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family ON refresh_tokens(family_id)`)
+	return err
 }
 
 // Open abre la base según el driver configurado. MySQL sigue siendo el modo

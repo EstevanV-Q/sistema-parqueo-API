@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"parking-backend/internal/auth"
 	"parking-backend/internal/billing"
@@ -272,5 +273,34 @@ func TestSQLitePaymentIdempotencyKey(t *testing.T) {
 	}
 	if second.ID != first.ID {
 		t.Fatalf("idempotencia devolvió pagos distintos: %s != %s", second.ID, first.ID)
+	}
+}
+
+func TestSQLiteRefreshTokenReuseRevokesFamily(t *testing.T) {
+	database := openSQLite(t)
+	cfg := testConfig()
+	cfg.JWTAccess = time.Minute
+	cfg.JWTRefresh = time.Hour
+	svc := auth.NewService(auth.NewSQLiteRepository(database), cfg)
+	if _, err := svc.Register("admin", "admin@example.com", "edge-password-123", auth.RoleAdmin, nil); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	_, _, refresh, err := svc.Login("admin", "edge-password-123")
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	_, rotated, err := svc.Refresh(refresh)
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	_, newest, err := svc.Refresh(rotated)
+	if err != nil {
+		t.Fatalf("Refresh rotado: %v", err)
+	}
+	if _, _, err := svc.Refresh(refresh); err == nil {
+		t.Fatal("reutilizar el token viejo debe fallar")
+	}
+	if _, _, err := svc.Refresh(newest); err == nil {
+		t.Fatal("la reutilización debe revocar toda la familia")
 	}
 }

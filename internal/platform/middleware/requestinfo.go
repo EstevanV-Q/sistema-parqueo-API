@@ -3,8 +3,8 @@ package middleware
 import (
 	"net"
 	"net/http"
-	"os"
 	"strings"
+	"sync/atomic"
 
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
@@ -35,10 +35,16 @@ func RequestIDHeader(next http.Handler) http.Handler {
 
 // trustProxyHeaders indica si se deben confiar en X-Real-IP / X-Forwarded-For.
 // Solo debe activarse cuando la API está detrás de un proxy inverso controlado.
-var trustProxyHeaders = os.Getenv("TRUST_PROXY_HEADERS") == "true"
+var trustProxyHeaders atomic.Bool
+
+// ConfigureTrustProxyHeaders habilita o deshabilita la confianza en cabeceras
+// de proxy. Debe llamarse al construir la aplicación, no en init.
+func ConfigureTrustProxyHeaders(enabled bool) {
+	trustProxyHeaders.Store(enabled)
+}
 
 func clientIP(r *http.Request) string {
-	if trustProxyHeaders {
+	if trustProxyHeaders.Load() {
 		if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
 			return realIP
 		}

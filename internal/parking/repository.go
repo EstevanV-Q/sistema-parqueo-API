@@ -43,6 +43,11 @@ type SpaceStatusUpdater interface {
 	UpdateStatus(spaceID, status string) error
 }
 
+// LocationValidator valida que zona y espacio pertenezcan a la sede.
+type LocationValidator interface {
+	ValidateLocation(siteID, zoneID, spaceID string) error
+}
+
 // VehicleTypeResolver resuelve el ID de un tipo de vehículo activo por código.
 type VehicleTypeResolver interface {
 	VehicleTypeIDByCode(code string) (string, error)

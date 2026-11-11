@@ -8,6 +8,7 @@ import (
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/clock"
 	"parking-backend/internal/platform/ids"
+	"parking-backend/internal/shared/plate"
 )
 
 // Service contiene la lógica de negocio de tickets.
@@ -17,6 +18,7 @@ type Service struct {
 	spaceUpdater      SpaceStatusUpdater
 	subscriptionCheck SubscriptionChecker
 	vehicleTypes      VehicleTypeResolver
+	locationValidator LocationValidator
 	defaultTypeCode   string
 	publisher         EventPublisher
 	now               clock.NowFunc
@@ -38,6 +40,12 @@ func (s *Service) WithRatePlanReader(r RatePlanReader) *Service {
 // WithSpaceUpdater inyecta el actualizador de estado de espacios.
 func (s *Service) WithSpaceUpdater(u SpaceStatusUpdater) *Service {
 	s.spaceUpdater = u
+	return s
+}
+
+// WithLocationValidator inyecta la validación de sede/zona/espacio.
+func (s *Service) WithLocationValidator(v LocationValidator) *Service {
+	s.locationValidator = v
 	return s
 }
 
@@ -82,6 +90,18 @@ func (s *Service) publish(siteID, event string, payload map[string]any) {
 func (s *Service) CreateTicket(siteID, zoneID, spaceID, vehicleID, plateNormalized, plateRaw, typeID, ratePlanID string) (*Ticket, error) {
 	if siteID == "" || plateNormalized == "" || typeID == "" {
 		return nil, apperr.New(apperr.ErrInvalidInput, "sitio, placa y tipo de vehículo son requeridos", 400, nil)
+	}
+	plateNormalized = plate.Normalize(plateNormalized)
+	if plateNormalized == "" {
+		return nil, apperr.New(apperr.ErrInvalidInput, "la placa es inválida", 400, nil)
+	}
+	if plateRaw == "" {
+		plateRaw = plateNormalized
+	}
+	if s.locationValidator != nil {
+		if err := s.locationValidator.ValidateLocation(siteID, zoneID, spaceID); err != nil {
+			return nil, err
+		}
 	}
 
 	// Verificar que el espacio no tenga un ticket abierto

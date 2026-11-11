@@ -23,11 +23,27 @@ func main() {
 	if err != nil {
 		log.Fatalf("Configuración inválida: %v", err)
 	}
+	security.ConfigureTokenPepper(cfg.TokenPepper)
+	if cfg.Env == "production" && !cfg.AllowSeed {
+		log.Fatal("el seed está bloqueado en producción; define ALLOW_SEED=true solo si es imprescindible")
+	}
 	if cfg.SeedAdminPassword == "" || cfg.SeedOperatorPassword == "" || cfg.SeedAuditorPassword == "" {
 		log.Fatal("SEED_ADMIN_PASSWORD, SEED_OPERATOR_PASSWORD y SEED_AUDITOR_PASSWORD son requeridos para ejecutar el seed")
 	}
+	for name, password := range map[string]string{
+		"SEED_ADMIN_PASSWORD":    cfg.SeedAdminPassword,
+		"SEED_OPERATOR_PASSWORD": cfg.SeedOperatorPassword,
+		"SEED_AUDITOR_PASSWORD":  cfg.SeedAuditorPassword,
+	} {
+		if err := security.ValidateSeedPassword(password); err != nil {
+			log.Fatalf("%s: %v", name, err)
+		}
+	}
+	if err := security.ValidateSeedPassword(cfg.SeedDeviceAPIKey); err != nil {
+		log.Fatalf("SEED_DEVICE_API_KEY: %v", err)
+	}
 	if len(cfg.SeedDeviceAPIKey) < 16 {
-		log.Fatal("SEED_DEVICE_API_KEY es requerido y debe tener al menos 16 caracteres")
+		log.Fatal("SEED_DEVICE_API_KEY debe tener al menos 16 caracteres")
 	}
 
 	if cfg.IsSQLite() {
@@ -49,8 +65,10 @@ func main() {
 		return
 	}
 
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4",
-		cfg.DBUser, cfg.DBPass, cfg.DBHost, cfg.DBPort, cfg.DBName)
+	dsn, err := platformdb.MySQLDSN(cfg)
+	if err != nil {
+		log.Fatalf("Configuración de base de datos inválida: %v", err)
+	}
 
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
@@ -113,6 +131,31 @@ func main() {
 		[]any{ids.StringToBin16(ids.UUIDv7String()), "auditor", "auditor@parqueo.local", auditorHash, "auditor", now},
 		`SELECT id FROM users WHERE username = ?`, "auditor",
 	)
+
+	// El seed es determinista: si los usuarios ya existían, rota sus
+	// credenciales a las definidas por las variables de entorno.
+	usersToUpdate := []struct {
+		id    string
+		hash  string
+		email string
+		role  string
+		site  any
+	}{
+		{adminID, adminHash, "admin@parqueo.local", "admin", nil},
+		{operID, operHash, "operador@parqueo.local", "operator", siteBin},
+		{auditorID, auditorHash, "auditor@parqueo.local", "auditor", nil},
+	}
+	for _, u := range usersToUpdate {
+		if u.id == "" {
+			continue
+		}
+		if _, err := db.Exec(
+			`UPDATE users SET password_hash=?, email=?, role=?, site_id=?, active=TRUE WHERE id=?`,
+			u.hash, u.email, u.role, u.site, ids.StringToBin16(u.id),
+		); err != nil {
+			log.Fatalf("No se pudo actualizar el usuario %s: %v", u.email, err)
+		}
+	}
 
 	// 3. Zona
 	zoneID := queryID(db, `SELECT id FROM zones WHERE site_id = ? AND name = ? LIMIT 1`, siteBin, "General - Carros")

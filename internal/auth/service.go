@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"parking-backend/internal/config"
@@ -11,6 +12,18 @@ import (
 	"parking-backend/internal/platform/clock"
 	"parking-backend/internal/platform/security"
 )
+
+var (
+	dummyHashOnce sync.Once
+	dummyHash     string
+)
+
+func getDummyHash() string {
+	dummyHashOnce.Do(func() {
+		dummyHash, _ = security.HashPassword("dummy-password-not-used")
+	})
+	return dummyHash
+}
 
 // Service contiene la lógica de negocio de auth.
 type Service struct {
@@ -32,6 +45,9 @@ func (s *Service) Register(username, email, password string, role Role, siteID *
 	username = strings.TrimSpace(username)
 	email = strings.ToLower(strings.TrimSpace(email))
 	if username == "" || email == "" || password == "" {
+		return nil, ErrInvalidInput
+	}
+	if len(username) > 100 || len(email) > 255 || len(password) > 128 {
 		return nil, ErrInvalidInput
 	}
 	if role != RoleAdmin && role != RoleOperator && role != RoleAuditor {
@@ -66,12 +82,19 @@ func (s *Service) Register(username, email, password string, role Role, siteID *
 
 // Login verifica credenciales, emite tokens y persiste el refresh token.
 func (s *Service) Login(username, password string) (*User, string, string, error) {
+	if username == "" || password == "" || len(username) > 100 || len(password) > 128 {
+		return nil, "", "", ErrInvalidCredentials
+	}
 	u, err := s.repo.ByUsername(username)
 	if err != nil {
+		if hash := getDummyHash(); hash != "" {
+			_, _ = security.ComparePassword(password, hash)
+		}
 		return nil, "", "", ErrInvalidCredentials
 	}
 	if !u.Active {
-		return nil, "", "", ErrInactive
+		_, _ = security.ComparePassword(password, u.PasswordHash)
+		return nil, "", "", ErrInvalidCredentials
 	}
 
 	ok, err := security.ComparePassword(password, u.PasswordHash)
@@ -115,10 +138,22 @@ func (s *Service) Refresh(refreshToken string) (string, string, error) {
 	}
 
 	stored, err := s.repo.RefreshTokenByHash(security.HashToken(refreshToken))
-	if err != nil || !stored.IsValid(s.now()) {
+	if err != nil {
 		return "", "", ErrInvalidCredentials
 	}
 	if stored.UserID != userID {
+		return "", "", ErrInvalidCredentials
+	}
+	familyID := stored.ID
+	if stored.FamilyID != nil && *stored.FamilyID != "" {
+		familyID = *stored.FamilyID
+	}
+	if stored.RevokedAt != nil {
+		// Reutilización de un token ya rotado: revocar toda la familia.
+		_ = s.repo.RevokeRefreshTokenFamily(familyID)
+		return "", "", ErrInvalidCredentials
+	}
+	if !stored.IsValid(s.now()) {
 		return "", "", ErrInvalidCredentials
 	}
 
@@ -130,21 +165,22 @@ func (s *Service) Refresh(refreshToken string) (string, string, error) {
 		return "", "", ErrInactive
 	}
 
-	// Rotación: se emite el nuevo par antes de revocar el anterior. Si la
-	// creación falla, el usuario conserva su sesión actual.
+	// Se emite el nuevo refresh token y se rota el anterior en una sola
+	// transacción. Si otro proceso ya lo rotó, se revoca la familia.
 	newRefresh, refreshExp, err := security.RefreshToken(s.cfg.JWTSecret, s.cfg.JWTIssuer, s.cfg.JWTAudience, u.ID, s.cfg.JWTRefresh)
 	if err != nil {
 		return "", "", apperr.From(err)
 	}
-	if err := s.repo.CreateRefreshToken(&RefreshToken{
+	newToken := &RefreshToken{
 		UserID:    u.ID,
 		TokenHash: security.HashToken(newRefresh),
 		ExpiresAt: refreshExp,
-	}); err != nil {
-		return "", "", err
 	}
-	if err := s.repo.RevokeRefreshToken(stored.ID); err != nil {
-		return "", "", err
+	if err := s.repo.RotateRefreshToken(stored.ID, newToken); err != nil {
+		if errors.Is(err, ErrTokenReuse) {
+			_ = s.repo.RevokeRefreshTokenFamily(familyID)
+		}
+		return "", "", ErrInvalidCredentials
 	}
 
 	accessTok, _, err := security.AccessToken(s.cfg.JWTSecret, s.cfg.JWTIssuer, s.cfg.JWTAudience, u.ID, u.Username, string(u.Role), u.SiteID, s.cfg.JWTAccess)

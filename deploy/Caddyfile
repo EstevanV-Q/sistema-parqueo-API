@@ -2,9 +2,19 @@
     # Email opcional para ACME. Si se define ACME_EMAIL en .env, se puede
     # descomentar la siguiente línea:
     # email {$ACME_EMAIL}
-    admin localhost:2019
+    admin off
 }
 
 {$APP_DOMAIN:localhost} {
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+    request_body {
+        max_size 2MB
+    }
     reverse_proxy api:8080
 }

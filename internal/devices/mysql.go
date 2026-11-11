@@ -44,12 +44,11 @@ func (r *mysqlRepo) Create(d *Device) error {
 		return apperr.From(err)
 	}
 	if err := r.outbox.EnqueueTx(tx, "device", d.ID, "device.created", map[string]any{
-		"device_id":    d.ID,
-		"site_id":      d.SiteID,
-		"name":         d.Name,
-		"type":         d.Type,
-		"api_key_hash": d.APIKeyHash,
-		"is_active":    d.IsActive,
+		"device_id": d.ID,
+		"site_id":   d.SiteID,
+		"name":      d.Name,
+		"type":      d.Type,
+		"is_active": d.IsActive,
 	}); err != nil {
 		return apperr.From(err)
 	}

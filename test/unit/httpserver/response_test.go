@@ -38,3 +38,16 @@ func TestAppErrorKeepsSafeMessage(t *testing.T) {
 		t.Fatalf("se esperaba el mensaje de validación: %s", rec.Body.String())
 	}
 }
+
+func TestDecodeRejectsNonJSONContentType(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(`{"x":1}`))
+	req.Header.Set("Content-Type", "text/plain")
+	var dst map[string]any
+	err := httpserver.Decode(req, &dst)
+	if err == nil {
+		t.Fatal("se esperaba error para Content-Type no JSON")
+	}
+	if apperr.HTTPStatusFrom(err) != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d, se esperaba 415", apperr.HTTPStatusFrom(err))
+	}
+}

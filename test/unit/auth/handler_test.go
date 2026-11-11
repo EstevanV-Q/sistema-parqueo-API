@@ -61,6 +61,12 @@ func (f *fakeRepo) ByID(id string) (*auth.User, error) {
 }
 
 func (f *fakeRepo) UpdateLastLogin(string, time.Time) error { return nil }
+func (f *fakeRepo) UpdatePasswordHash(id, hash string) error {
+	if u, ok := f.byID[id]; ok {
+		u.PasswordHash = hash
+	}
+	return nil
+}
 
 func (f *fakeRepo) CreateRefreshToken(t *auth.RefreshToken) error {
 	if t.ID == "" {
@@ -78,10 +84,49 @@ func (f *fakeRepo) RefreshTokenByHash(hash string) (*auth.RefreshToken, error) {
 	return t, nil
 }
 
+func (f *fakeRepo) RotateRefreshToken(oldID string, newToken *auth.RefreshToken) error {
+	var old *auth.RefreshToken
+	for _, t := range f.tokens {
+		if t.ID == oldID {
+			old = t
+			break
+		}
+	}
+	if old == nil {
+		return auth.ErrNotFound
+	}
+	if old.RevokedAt != nil {
+		return auth.ErrTokenReuse
+	}
+	now := time.Now()
+	old.RevokedAt = &now
+	if newToken.ID == "" {
+		newToken.ID = "rt-" + newToken.TokenHash[:8]
+	}
+	family := old.ID
+	if old.FamilyID != nil {
+		family = *old.FamilyID
+	}
+	newToken.FamilyID = &family
+	old.ReplacedBy = &newToken.ID
+	f.tokens[newToken.TokenHash] = newToken
+	return nil
+}
+
 func (f *fakeRepo) RevokeRefreshToken(id string) error {
 	now := time.Now()
 	for _, t := range f.tokens {
 		if t.ID == id {
+			t.RevokedAt = &now
+		}
+	}
+	return nil
+}
+
+func (f *fakeRepo) RevokeRefreshTokenFamily(familyID string) error {
+	now := time.Now()
+	for _, t := range f.tokens {
+		if (t.FamilyID != nil && *t.FamilyID == familyID) || t.ID == familyID {
 			t.RevokedAt = &now
 		}
 	}

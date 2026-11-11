@@ -10,12 +10,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"net"
 	"os"
 	"sort"
 	"time"
-
-	"github.com/go-sql-driver/mysql"
 
 	"parking-backend/internal/config"
 	platformdb "parking-backend/internal/platform/db"
@@ -56,9 +53,9 @@ func main() {
 		fmt.Printf("Driver: sqlite\nArchivo: %s\n\n", cfg.SQLitePath)
 		database, err = platformdb.Open(cfg)
 	} else {
-		fmt.Printf("Driver: mysql\nHost: %s:%s\nBase de datos: %s\nUsuario: %s\n\n",
-			cfg.DBHost, cfg.DBPort, cfg.DBName, cfg.DBUser)
-		database, err = openMySQL(cfg)
+		fmt.Printf("Driver: mysql\nHost: %s:%s\nBase de datos: %s\nUsuario: %s\nTLS: %s\n\n",
+			cfg.DBHost, cfg.DBPort, cfg.DBName, cfg.DBUser, cfg.DBTLS)
+		database, err = platformdb.Open(cfg)
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR de conexión: %v\n", err)
@@ -96,7 +93,11 @@ func main() {
 	fmt.Printf("\nTablas encontradas: %d\n", len(tables))
 
 	missing := make([]string, 0)
-	for _, table := range requiredTables {
+	required := append([]string{}, requiredTables...)
+	if !cfg.IsSQLite() {
+		required = append(required, "sync_inbox")
+	}
+	for _, table := range required {
 		if !tables[table] {
 			missing = append(missing, table)
 		}
@@ -108,28 +109,6 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Println("Esquema mínimo: OK")
-}
-
-func openMySQL(cfg *config.Config) (*sql.DB, error) {
-	mysqlCfg := mysql.NewConfig()
-	mysqlCfg.User = cfg.DBUser
-	mysqlCfg.Passwd = cfg.DBPass
-	mysqlCfg.Net = "tcp"
-	mysqlCfg.Addr = net.JoinHostPort(cfg.DBHost, cfg.DBPort)
-	mysqlCfg.DBName = cfg.DBName
-	mysqlCfg.ParseTime = true
-	mysqlCfg.Timeout = 10 * time.Second
-	mysqlCfg.ReadTimeout = 10 * time.Second
-	mysqlCfg.WriteTimeout = 10 * time.Second
-	mysqlCfg.Params = map[string]string{"charset": "utf8mb4"}
-
-	database, err := sql.Open("mysql", mysqlCfg.FormatDSN())
-	if err != nil {
-		return nil, err
-	}
-	database.SetMaxOpenConns(2)
-	database.SetMaxIdleConns(1)
-	return database, nil
 }
 
 func listTables(ctx context.Context, database *sql.DB, sqlite bool) (map[string]bool, error) {

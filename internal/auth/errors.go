@@ -12,4 +12,5 @@ var (
 	ErrForbidden          = apperr.New(apperr.ErrForbidden, "prohibido", 403, nil)
 	ErrInactive           = apperr.New(apperr.ErrForbidden, "usuario inactivo", 403, nil)
 	ErrInvalidCredentials = apperr.New(apperr.ErrUnauthorized, "credenciales inválidas", 401, nil)
+	ErrTokenReuse         = apperr.New(apperr.ErrUnauthorized, "refresh token reutilizado", 401, nil)
 )

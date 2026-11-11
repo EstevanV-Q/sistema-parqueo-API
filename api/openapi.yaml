@@ -684,11 +684,11 @@ paths:
                 site_id: { type: string }
                 name: { type: string }
                 type: { type: string, enum: [barrier, lpr, rfid, printer] }
-                api_key: { type: string, minLength: 16, description: Se guarda solo su hash SHA-256 }
+                api_key: { type: string, minLength: 16, description: Se guarda solo su hash HMAC-SHA256 }
       responses:
-        "201": { description: Dispositivo creado }
+        "201": { description: Dispositivo creado sin exponer el hash de la API key }
     get:
-      summary: Listar dispositivos de una sede
+      summary: Listar dispositivos de una sede (solo admin)
       tags: [devices]
       security: [{ bearerAuth: [] }]
       parameters:

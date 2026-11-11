@@ -188,16 +188,31 @@ El dominio y el motor de tarifas son puros (sin dependencias de infraestructura)
 - **Borde**: API por sede con SQLite WAL, login offline con hashes cacheados,
   tickets y pagos locales, y outbox transaccional hacia el central.
 - **Sincronización**: eventual e idempotente por evento; el central recibe en
-  `sync_inbox` y no edita tickets/pagos del borde en v1.
+  `sync_inbox` y el procesador consolida tickets y pagos en las tablas centrales.
 - **Consistencia**: una operación local y su evento de outbox se confirman en
   la misma transacción. Los conflictos quedan visibles para revisión.
 
+## Seguridad y despliegue
+
+- `DB_TLS` debe ser `true` o `custom` con `DB_TLS_CA` en producción. El DSN fija
+  timeouts y sesión UTC.
+- `TOKEN_PEPPER` es obligatorio en producción (mínimo 32 caracteres). Protege
+  refresh tokens y API keys de dispositivos; al cambiarlo hay que rotar ambos.
+- `TRUST_PROXY_HEADERS=true` solo si la API está detrás de un proxy controlado
+  (por ejemplo Caddy). Si se expone directamente, debe quedar en `false`.
+- El seed está bloqueado con `ENV=production`; requiere `ALLOW_SEED=true` de
+  forma explícita y contraseñas fuertes no placeholders.
+- Para sincronización multi-sede usa `SYNC_SITE_TOKENS` con un token por sede.
+  En producción no se acepta el token global.
+- `GET /api/v1/devices` es solo para `admin` y nunca devuelve el hash de la API
+  key del dispositivo.
+- Aplica migraciones antes de arrancar: `go run cmd/migrate/main.go up`.
+- Verifica la conexión y el esquema con `go run ./cmd/dbcheck`.
+
 ## Próximos pasos (pendiente)
 
-- Procesador del `sync_inbox` para consolidar tickets/pagos en tablas centrales.
 - Descarga de catálogo/tarifas/usuarios desde el central hacia el borde.
 - Panel de conflictos y reintentos manuales de sincronización.
-- Swagger/OpenAPI (`/swagger/*`)
 - Frontend (React/Vue/Go templates)
 - Tests de integración con MySQL real (testcontainers)
 

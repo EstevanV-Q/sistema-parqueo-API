@@ -155,6 +155,42 @@ func (s *Service) GetSpace(id string) (*Space, error) {
 	return s.spaceRepo.ByID(id)
 }
 
+// ValidateLocation verifica que la zona pertenezca a la sede y que el espacio
+// pertenezca a esa zona. Evita tickets con espacios de otra sede.
+func (s *Service) ValidateLocation(siteID, zoneID, spaceID string) error {
+	if siteID == "" {
+		return apperr.New(apperr.ErrInvalidInput, "la sede es requerida", 400, nil)
+	}
+	if zoneID != "" {
+		zone, err := s.zoneRepo.ByID(zoneID)
+		if err != nil {
+			return err
+		}
+		if zone.SiteID != siteID {
+			return apperr.New(apperr.ErrInvalidInput, "la zona no pertenece a la sede indicada", 400, nil)
+		}
+	}
+	if spaceID != "" {
+		space, err := s.spaceRepo.ByID(spaceID)
+		if err != nil {
+			return err
+		}
+		if zoneID != "" && space.ZoneID != zoneID {
+			return apperr.New(apperr.ErrInvalidInput, "el espacio no pertenece a la zona indicada", 400, nil)
+		}
+		if zoneID == "" {
+			zone, err := s.zoneRepo.ByID(space.ZoneID)
+			if err != nil {
+				return err
+			}
+			if zone.SiteID != siteID {
+				return apperr.New(apperr.ErrInvalidInput, "el espacio no pertenece a la sede indicada", 400, nil)
+			}
+		}
+	}
+	return nil
+}
+
 // SiteIDForSpace resuelve la sede de un espacio pasando por su zona.
 func (s *Service) SiteIDForSpace(id string) (string, error) {
 	space, err := s.spaceRepo.ByID(id)

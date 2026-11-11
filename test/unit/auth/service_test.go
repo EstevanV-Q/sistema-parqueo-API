@@ -78,14 +78,19 @@ func TestRefresh_RotatesAndRevokesOldToken(t *testing.T) {
 		t.Fatal("el refresh token debe rotar")
 	}
 
-	// El token viejo ya no debe servir.
-	if _, _, err := svc.Refresh(refresh); err == nil {
-		t.Fatal("el refresh token viejo debe quedar revocado")
+	// El nuevo token debe servir antes de detectar la reutilización.
+	_, newestRefresh, err := svc.Refresh(newRefresh)
+	if err != nil {
+		t.Fatalf("Refresh con token nuevo: %v", err)
 	}
 
-	// El nuevo sí debe servir.
-	if _, _, err := svc.Refresh(newRefresh); err != nil {
-		t.Fatalf("Refresh con token nuevo: %v", err)
+	// Reutilizar el token viejo debe fallar y revocar toda la familia,
+	// incluido el token más reciente.
+	if _, _, err := svc.Refresh(refresh); err == nil {
+		t.Fatal("la reutilización del token viejo debe fallar")
+	}
+	if _, _, err := svc.Refresh(newestRefresh); err == nil {
+		t.Fatal("la reutilización debe revocar la familia completa")
 	}
 }
 

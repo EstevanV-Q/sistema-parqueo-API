@@ -25,6 +25,7 @@ import (
 	"parking-backend/internal/platform/httpserver"
 	platmiddleware "parking-backend/internal/platform/middleware"
 	"parking-backend/internal/platform/outbox"
+	"parking-backend/internal/platform/security"
 	"parking-backend/internal/rateplans"
 	"parking-backend/internal/realtime"
 	"parking-backend/internal/reporting"
@@ -45,6 +46,9 @@ type App struct {
 // New construye la aplicación completa. El llamante es responsable de cerrar
 // la base de datos con Close.
 func New(cfg *config.Config) (*App, error) {
+	security.ConfigureTokenPepper(cfg.TokenPepper)
+	platmiddleware.ConfigureTrustProxyHeaders(cfg.TrustProxyHeaders)
+
 	database, err := db.Open(cfg)
 	if err != nil {
 		return nil, err
@@ -65,7 +69,7 @@ func New(cfg *config.Config) (*App, error) {
 		authRepo = auth.NewSQLiteRepository(database)
 	}
 	authSvc := auth.NewService(authRepo, cfg)
-	authHandler := auth.NewHandler(authSvc)
+	authHandler := auth.NewHandler(authSvc, platmiddleware.NewKeyLimiter(5, time.Minute)).WithAuditor(auditSvc)
 
 	// --- Catálogo ---
 	siteRepo := catalog.NewMySQLSiteRepo(database)
@@ -131,6 +135,7 @@ func New(cfg *config.Config) (*App, error) {
 	parkingSvc := parking.NewService(parkingRepo).
 		WithRatePlanReader(rateplansSvc).
 		WithSpaceUpdater(catalogSvc).
+		WithLocationValidator(catalogSvc).
 		WithSubscriptionChecker(subscriptionsSvc).
 		WithVehicleTypeResolver(catalogSvc).
 		WithDefaultVehicleType(cfg.DefaultVehicleTypeCode).
@@ -149,7 +154,7 @@ func New(cfg *config.Config) (*App, error) {
 		WithGate(parkingSvc).
 		WithTicketCreator(parkingSvc).
 		WithPublisher(rtPublisher)
-	devicesHandler := devices.NewHandler(devicesSvc)
+	devicesHandler := devices.NewHandler(devicesSvc, platmiddleware.NewKeyLimiter(240, time.Minute))
 
 	// --- Reportes ---
 	reportingRepo := reporting.NewMySQLRepository(database)
@@ -162,8 +167,8 @@ func New(cfg *config.Config) (*App, error) {
 	// --- Router ---
 	authMW := platmiddleware.NewAuthMiddleware(cfg)
 	var syncIngest *syncer.Handler
-	if !cfg.IsSQLite() && cfg.SyncToken != "" {
-		syncIngest = syncer.NewHandler(database, cfg.SyncToken)
+	if !cfg.IsSQLite() && (cfg.SyncToken != "" || len(cfg.SyncSiteTokens) > 0) {
+		syncIngest = syncer.NewHandler(database, cfg.SyncToken, cfg.SyncSiteTokens)
 	}
 	r := buildRouter(database, authMW,
 		authHandler, parkingHandler, billingHandler, subsHandler,
@@ -187,6 +192,12 @@ func New(cfg *config.Config) (*App, error) {
 				slog.Error("worker de sincronización detenido", "error", err)
 			}
 		}()
+	}
+	if !cfg.IsSQLite() && syncIngest != nil {
+		processor := syncer.NewProcessor(database)
+		var syncCtx context.Context
+		syncCtx, syncCancel = context.WithCancel(context.Background())
+		go processor.Run(syncCtx, cfg.SyncProcessorInterval)
 	}
 
 	return &App{
@@ -234,6 +245,7 @@ func buildRouter(
 	r.Use(chimiddleware.Logger)
 	r.Use(platmiddleware.RequestInfo)
 	r.Use(platmiddleware.CORS)
+	r.Use(httpserver.MaxBytes(1 << 20))
 
 	// Salud
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -342,7 +354,7 @@ func buildRouter(
 			// Dispositivos (administración)
 			r.Route("/devices", func(r chi.Router) {
 				r.With(platmiddleware.RequireRole("admin")).Post("/", devicesHandler.RegisterDevice)
-				r.Get("/", devicesHandler.ListDevices)
+				r.With(platmiddleware.RequireRole("admin")).Get("/", devicesHandler.ListDevices)
 			})
 
 			// Reportes

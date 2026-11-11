@@ -1,7 +1,9 @@
 package devices_test
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -289,5 +291,23 @@ func TestHashTokenProducesHash(t *testing.T) {
 	}
 	if hash == "clave-secreta" {
 		t.Fatal("HashToken no debería devolver el texto plano")
+	}
+}
+
+func TestDeviceJSONDoesNotExposeAPIKeyHash(t *testing.T) {
+	body, err := json.Marshal(devices.Device{
+		ID:         "device-1",
+		SiteID:     "site-1",
+		Name:       "Barrera",
+		Type:       "barrier",
+		APIKeyHash: "hash-secreto",
+		IsActive:   true,
+	})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if strings.Contains(strings.ToLower(string(body)), "apikeyhash") ||
+		strings.Contains(string(body), "hash-secreto") {
+		t.Fatalf("la serialización no debe incluir el hash: %s", body)
 	}
 }

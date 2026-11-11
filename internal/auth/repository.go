@@ -12,10 +12,13 @@ type Repository interface {
 	ByEmail(email string) (*User, error)
 	ByID(id string) (*User, error)
 	UpdateLastLogin(id string, at time.Time) error
+	UpdatePasswordHash(id, passwordHash string) error
 
 	CreateRefreshToken(t *RefreshToken) error
 	RefreshTokenByHash(hash string) (*RefreshToken, error)
+	RotateRefreshToken(oldID string, newToken *RefreshToken) error
 	RevokeRefreshToken(id string) error
+	RevokeRefreshTokenFamily(familyID string) error
 	RevokeUserRefreshTokens(userID string) error
 }
 

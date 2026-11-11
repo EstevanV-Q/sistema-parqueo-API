@@ -26,12 +26,14 @@ type User struct {
 
 // RefreshToken representa un refresh token persistido (solo se guarda su hash).
 type RefreshToken struct {
-	ID        string
-	UserID    string
-	TokenHash string
-	ExpiresAt time.Time
-	RevokedAt *time.Time
-	CreatedAt time.Time
+	ID         string
+	UserID     string
+	TokenHash  string
+	FamilyID   *string
+	ReplacedBy *string
+	ExpiresAt  time.Time
+	RevokedAt  *time.Time
+	CreatedAt  time.Time
 }
 
 // IsValid devuelve true si el token no está revocado ni expirado.

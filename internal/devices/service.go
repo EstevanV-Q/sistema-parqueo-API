@@ -7,6 +7,7 @@ import (
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
 	"parking-backend/internal/platform/security"
+	"parking-backend/internal/shared/plate"
 )
 
 // Gate permite consultar al módulo de parking si una entrada/salida procede.
@@ -114,6 +115,12 @@ func (s *Service) ProcessEvent(device *Device, eventID, eventType, plateNormaliz
 	}
 	if eventID == "" || eventType == "" {
 		return nil, apperr.New(apperr.ErrInvalidInput, "event_id y event_type son requeridos", 400, nil)
+	}
+	if plateNormalized != "" {
+		plateNormalized = plate.Normalize(plateNormalized)
+		if plateNormalized == "" {
+			return nil, apperr.New(apperr.ErrInvalidInput, "la placa es inválida", 400, nil)
+		}
 	}
 
 	// Deduplicación por event_id

@@ -9,15 +9,27 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/argon2"
 )
 
+// passwordSem limita cuántos hashes Argon2id se calculan a la vez para evitar
+// agotar memoria con peticiones concurrentes.
+var passwordSem = make(chan struct{}, 4)
+
+func withPasswordSlot() func() {
+	passwordSem <- struct{}{}
+	return func() { <-passwordSem }
+}
+
 // HashPassword genera un hash Argon2id de la contraseña.
 func HashPassword(password string) (string, error) {
+	release := withPasswordSlot()
+	defer release()
+
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
@@ -41,6 +53,9 @@ func HashPassword(password string) (string, error) {
 
 // ComparePassword compara una contraseña contra un hash Argon2id.
 func ComparePassword(password, encodedHash string) (bool, error) {
+	release := withPasswordSlot()
+	defer release()
+
 	params, salt, hash, err := decodeHash(encodedHash)
 	if err != nil {
 		return false, err
@@ -118,17 +133,32 @@ func TokenExpiry(d time.Duration) time.Time {
 	return time.Now().Add(d)
 }
 
-// tokenPepper es una clave secreta opcional para HMAC al hashear tokens.
-// Se lee de la variable de entorno TOKEN_PEPPER. Si no se define, se usa
-// SHA-256 plano (compatibilidad hacia atrás) pero se recomienda definirla
-// en producción para evitar rainbow tables.
-var tokenPepper = []byte(os.Getenv("TOKEN_PEPPER"))
+// pepper protege el hash de tokens opacos (refresh tokens y API keys de
+// dispositivos). Se configura desde config.Load; nunca se lee de .env en init.
+var (
+	pepperMu    sync.RWMutex
+	tokenPepper []byte
+)
+
+// ConfigureTokenPepper establece el secreto usado por HashToken. Debe llamarse
+// antes de hashear o comparar tokens.
+func ConfigureTokenPepper(pepper string) {
+	pepperMu.Lock()
+	defer pepperMu.Unlock()
+	tokenPepper = []byte(pepper)
+}
+
+func currentPepper() []byte {
+	pepperMu.RLock()
+	defer pepperMu.RUnlock()
+	return tokenPepper
+}
 
 // HashToken hashea un token opaco (refresh token o API key) usando HMAC-SHA256
-// con una clave secreta (pepper) opcional. Los tokens tienen alta entropía,
-// por lo que esto es suficiente y permite búsquedas indexadas por hash.
+// con el pepper configurado. Los tokens tienen alta entropía, por lo que esto
+// es suficiente y permite búsquedas indexadas por hash.
 func HashToken(token string) string {
-	mac := hmac.New(sha256.New, tokenPepper)
+	mac := hmac.New(sha256.New, currentPepper())
 	mac.Write([]byte(token))
 	return hex.EncodeToString(mac.Sum(nil))
 }

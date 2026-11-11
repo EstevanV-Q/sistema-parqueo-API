@@ -63,6 +63,23 @@ func (l *limiter) cleanup() {
 	}
 }
 
+// KeyLimiter expone un limitador por clave para usarlo después de autenticar
+// (por ejemplo, por username o por device_id). Es en memoria y por proceso.
+type KeyLimiter struct {
+	l *limiter
+}
+
+func NewKeyLimiter(limit int, period time.Duration) *KeyLimiter {
+	return &KeyLimiter{l: newLimiter(limit, period)}
+}
+
+func (k *KeyLimiter) Allow(key string) bool {
+	if k == nil || k.l == nil {
+		return true
+	}
+	return k.l.allow(key)
+}
+
 // KeyExtractor extrae la clave de rate limiting de una petición HTTP.
 // Por defecto se usa la IP del cliente, pero se puede inyectar una función
 // que use el user_id del JWT o la X-Device-Key para un control más fino.

@@ -13,6 +13,7 @@ import (
 	"parking-backend/internal/devices"
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
+	"parking-backend/internal/platform/security"
 	"parking-backend/internal/rateplans"
 	"parking-backend/internal/subscriptions"
 	"parking-backend/internal/vehicles"
@@ -33,12 +34,28 @@ type SeedResult struct {
 // Seed crea los datos mínimos para que una sede pueda operar sin conexión.
 // Es idempotente por código de sede, usuario, documento, placa y nombre.
 func Seed(database *sql.DB, cfg *config.Config) (*SeedResult, error) {
+	if cfg.Env == "production" && !cfg.AllowSeed {
+		return nil, fmt.Errorf("el seed está bloqueado en producción; define ALLOW_SEED=true solo si es imprescindible")
+	}
 	if cfg.SeedAdminPassword == "" || cfg.SeedOperatorPassword == "" || cfg.SeedAuditorPassword == "" {
 		return nil, fmt.Errorf("SEED_ADMIN_PASSWORD, SEED_OPERATOR_PASSWORD y SEED_AUDITOR_PASSWORD son requeridos")
+	}
+	for name, password := range map[string]string{
+		"SEED_ADMIN_PASSWORD":    cfg.SeedAdminPassword,
+		"SEED_OPERATOR_PASSWORD": cfg.SeedOperatorPassword,
+		"SEED_AUDITOR_PASSWORD":  cfg.SeedAuditorPassword,
+	} {
+		if err := security.ValidateSeedPassword(password); err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
 	}
 	if len(cfg.SeedDeviceAPIKey) < 16 {
 		return nil, fmt.Errorf("SEED_DEVICE_API_KEY es requerido y debe tener al menos 16 caracteres")
 	}
+	if err := security.ValidateSeedPassword(cfg.SeedDeviceAPIKey); err != nil {
+		return nil, fmt.Errorf("SEED_DEVICE_API_KEY: %w", err)
+	}
+	security.ConfigureTokenPepper(cfg.TokenPepper)
 
 	siteRepo := catalog.NewSQLiteSiteRepo(database)
 	zoneRepo := catalog.NewSQLiteZoneRepo(database)
@@ -163,6 +180,13 @@ func Seed(database *sql.DB, cfg *config.Config) (*SeedResult, error) {
 
 func ensureUser(repo auth.Repository, svc *auth.Service, username, email, password string, role auth.Role, siteID *string) (string, error) {
 	if u, err := repo.ByUsername(username); err == nil && u != nil {
+		hash, hashErr := security.HashPassword(password)
+		if hashErr != nil {
+			return "", hashErr
+		}
+		if err := repo.UpdatePasswordHash(u.ID, hash); err != nil {
+			return "", fmt.Errorf("actualizar contraseña de %s: %w", username, err)
+		}
 		return u.ID, nil
 	} else if err != nil && !apperr.Is(err, apperr.ErrNotFound) {
 		return "", err

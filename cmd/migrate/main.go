@@ -9,6 +9,7 @@ import (
 	"github.com/pressly/goose/v3"
 
 	"parking-backend/internal/config"
+	platformdb "parking-backend/internal/platform/db"
 )
 
 func main() {
@@ -28,8 +29,11 @@ func main() {
 		return
 	}
 
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4",
-		cfg.DBUser, cfg.DBPass, cfg.DBHost, cfg.DBPort, cfg.DBName)
+	dsn, err := platformdb.MySQLDSN(cfg)
+	if err != nil {
+		fmt.Printf("Configuración de base de datos inválida: %v\n", err)
+		os.Exit(1)
+	}
 
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {

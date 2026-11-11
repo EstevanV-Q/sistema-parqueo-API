@@ -10,11 +10,43 @@ import (
 )
 
 type Handler struct {
-	svc *Service
+	svc           *Service
+	deviceLimiter *middleware.KeyLimiter
 }
 
-func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+func NewHandler(svc *Service, deviceLimiters ...*middleware.KeyLimiter) *Handler {
+	h := &Handler{svc: svc}
+	if len(deviceLimiters) > 0 {
+		h.deviceLimiter = deviceLimiters[0]
+	}
+	return h
+}
+
+// deviceResp es el DTO público de un dispositivo. Nunca incluye el hash de la
+// API key ni el hash de autenticación.
+type deviceResp struct {
+	ID            string  `json:"id"`
+	SiteID        string  `json:"site_id"`
+	Name          string  `json:"name"`
+	Type          string  `json:"type"`
+	IsActive      bool    `json:"is_active"`
+	LastHeartbeat *string `json:"last_heartbeat,omitempty"`
+	CreatedAt     string  `json:"created_at,omitempty"`
+}
+
+func toDeviceResp(d *Device) deviceResp {
+	if d == nil {
+		return deviceResp{}
+	}
+	return deviceResp{
+		ID:            d.ID,
+		SiteID:        d.SiteID,
+		Name:          d.Name,
+		Type:          d.Type,
+		IsActive:      d.IsActive,
+		LastHeartbeat: d.LastHeartbeat,
+		CreatedAt:     d.CreatedAt,
+	}
 }
 
 type registerDeviceReq struct {
@@ -44,7 +76,7 @@ func (h *Handler) RegisterDevice(w http.ResponseWriter, r *http.Request) {
 		httpserver.Error(w, err)
 		return
 	}
-	httpserver.JSON(w, http.StatusCreated, d)
+	httpserver.JSON(w, http.StatusCreated, toDeviceResp(d))
 }
 
 func (h *Handler) ListDevices(w http.ResponseWriter, r *http.Request) {
@@ -62,13 +94,17 @@ func (h *Handler) ListDevices(w http.ResponseWriter, r *http.Request) {
 		httpserver.Error(w, err)
 		return
 	}
-	httpserver.JSON(w, http.StatusOK, list)
+	out := make([]deviceResp, 0, len(list))
+	for _, d := range list {
+		out = append(out, toDeviceResp(d))
+	}
+	httpserver.JSON(w, http.StatusOK, out)
 }
 
 type processEventReq struct {
-	EventID         string `json:"event_id" validate:"required"`
-	EventType       string `json:"event_type" validate:"required"`
-	PlateNormalized string `json:"plate_normalized"`
+	EventID         string `json:"event_id" validate:"required,max=128"`
+	EventType       string `json:"event_type" validate:"required,max=50"`
+	PlateNormalized string `json:"plate_normalized" validate:"omitempty,max=20"`
 }
 
 // ProcessEvent requiere el header X-Device-Key con la API key del dispositivo.
@@ -76,6 +112,11 @@ func (h *Handler) ProcessEvent(w http.ResponseWriter, r *http.Request) {
 	device, err := h.svc.Authenticate(r.Header.Get("X-Device-Key"))
 	if err != nil {
 		httpserver.Error(w, err)
+		return
+	}
+	if h.deviceLimiter != nil && !h.deviceLimiter.Allow(device.ID) {
+		w.Header().Set("Retry-After", "60")
+		httpserver.Error(w, apperr.New(apperr.ErrTooManyRequests, "demasiados eventos para este dispositivo", http.StatusTooManyRequests, nil))
 		return
 	}
 

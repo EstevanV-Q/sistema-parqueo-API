@@ -6,7 +6,7 @@ type Device struct {
 	SiteID        string
 	Name          string
 	Type          string
-	APIKeyHash    string
+	APIKeyHash    string `json:"-"`
 	IsActive      bool
 	LastHeartbeat *string
 	CreatedAt     string

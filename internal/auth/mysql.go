@@ -10,17 +10,25 @@ import (
 )
 
 type mysqlRepo struct {
-	db     *sql.DB
-	outbox *outbox.Store
+	db        *sql.DB
+	outbox    *outbox.Store
+	forUpdate bool
 }
 
 func NewMySQLRepository(db *sql.DB) Repository {
-	return &mysqlRepo{db: db}
+	return &mysqlRepo{db: db, forUpdate: true}
 }
 
 // NewSQLiteRepository usa el mismo contrato y esquema lógico que MySQL.
 func NewSQLiteRepository(db *sql.DB) Repository {
 	return &mysqlRepo{db: db, outbox: outbox.NewStore(db)}
+}
+
+func (r *mysqlRepo) lockClause() string {
+	if r.forUpdate {
+		return " FOR UPDATE"
+	}
+	return ""
 }
 
 func (r *mysqlRepo) Create(u *User) error {
@@ -88,12 +96,23 @@ func (r *mysqlRepo) UpdateLastLogin(id string, at time.Time) error {
 	return apperr.FromErr(err)
 }
 
+func (r *mysqlRepo) UpdatePasswordHash(id, passwordHash string) error {
+	_, err := r.db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, ids.StringToBin16(id))
+	return apperr.FromErr(err)
+}
+
 func (r *mysqlRepo) CreateRefreshToken(t *RefreshToken) error {
-	idBin := ids.UUIDv7()
-	t.ID = ids.Bin16ToString(idBin)
-	query := `INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, created_at)
-	          VALUES (?, ?, ?, ?, ?)`
-	_, err := r.db.Exec(query, idBin, ids.StringToBin16(t.UserID), t.TokenHash, t.ExpiresAt, time.Now().UTC())
+	if t.ID == "" {
+		t.ID = ids.UUIDv7String()
+	}
+	familyID := t.ID
+	if t.FamilyID != nil && *t.FamilyID != "" {
+		familyID = *t.FamilyID
+	}
+	t.FamilyID = &familyID
+	query := `INSERT INTO refresh_tokens (id, user_id, token_hash, family_id, expires_at, created_at)
+	          VALUES (?, ?, ?, ?, ?, ?)`
+	_, err := r.db.Exec(query, ids.StringToBin16(t.ID), ids.StringToBin16(t.UserID), t.TokenHash, ids.StringToBin16(familyID), t.ExpiresAt, time.Now().UTC())
 	if err != nil {
 		return apperr.From(err)
 	}
@@ -101,24 +120,63 @@ func (r *mysqlRepo) CreateRefreshToken(t *RefreshToken) error {
 }
 
 func (r *mysqlRepo) RefreshTokenByHash(hash string) (*RefreshToken, error) {
-	query := `SELECT id, user_id, token_hash, expires_at, revoked_at, created_at
+	query := `SELECT id, user_id, token_hash, family_id, replaced_by, expires_at, revoked_at, created_at
 	          FROM refresh_tokens WHERE token_hash = ? LIMIT 1`
-	var t RefreshToken
-	var idBin, userIDBin []byte
+	return scanRefreshToken(r.db.QueryRow(query, hash))
+}
+
+// RotateRefreshToken valida y rota el token dentro de una transacción. Si el
+// token ya fue revocado, devuelve ErrTokenReuse sin crear uno nuevo.
+func (r *mysqlRepo) RotateRefreshToken(oldID string, newToken *RefreshToken) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return apperr.From(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	var revokedAt sql.NullTime
-	err := r.db.QueryRow(query, hash).Scan(&idBin, &userIDBin, &t.TokenHash, &t.ExpiresAt, &revokedAt, &t.CreatedAt)
+	var familyID []byte
+	err = tx.QueryRow(`SELECT revoked_at, family_id FROM refresh_tokens WHERE id = ?`+r.lockClause(),
+		ids.StringToBin16(oldID)).Scan(&revokedAt, &familyID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, ErrNotFound
+			return ErrNotFound
 		}
-		return nil, apperr.From(err)
+		return apperr.From(err)
 	}
-	t.ID = ids.Bin16ToString(idBin)
-	t.UserID = ids.Bin16ToString(userIDBin)
 	if revokedAt.Valid {
-		t.RevokedAt = &revokedAt.Time
+		return ErrTokenReuse
 	}
-	return &t, nil
+
+	family := ids.Bin16ToString(familyID)
+	if family == "" {
+		family = oldID
+	}
+	newToken.FamilyID = &family
+	if newToken.ID == "" {
+		newToken.ID = ids.UUIDv7String()
+	}
+	now := time.Now().UTC()
+	_, err = tx.Exec(`INSERT INTO refresh_tokens (id, user_id, token_hash, family_id, expires_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		ids.StringToBin16(newToken.ID), ids.StringToBin16(newToken.UserID), newToken.TokenHash,
+		ids.StringToBin16(family), newToken.ExpiresAt, now)
+	if err != nil {
+		return apperr.From(err)
+	}
+	res, err := tx.Exec(`UPDATE refresh_tokens SET revoked_at = ?, replaced_by = ? WHERE id = ? AND revoked_at IS NULL`,
+		now, ids.StringToBin16(newToken.ID), ids.StringToBin16(oldID))
+	if err != nil {
+		return apperr.From(err)
+	}
+	affected, _ := res.RowsAffected()
+	if affected != 1 {
+		return ErrTokenReuse
+	}
+	if err := tx.Commit(); err != nil {
+		return apperr.From(err)
+	}
+	return nil
 }
 
 func (r *mysqlRepo) RevokeRefreshToken(id string) error {
@@ -127,10 +185,44 @@ func (r *mysqlRepo) RevokeRefreshToken(id string) error {
 	return apperr.FromErr(err)
 }
 
+func (r *mysqlRepo) RevokeRefreshTokenFamily(familyID string) error {
+	_, err := r.db.Exec(`UPDATE refresh_tokens SET revoked_at = ?
+		WHERE (family_id = ? OR id = ?) AND revoked_at IS NULL`,
+		time.Now().UTC(), ids.StringToBin16(familyID), ids.StringToBin16(familyID))
+	return apperr.FromErr(err)
+}
+
 func (r *mysqlRepo) RevokeUserRefreshTokens(userID string) error {
 	_, err := r.db.Exec(`UPDATE refresh_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`,
 		time.Now().UTC(), ids.StringToBin16(userID))
 	return apperr.FromErr(err)
+}
+
+func scanRefreshToken(row *sql.Row) (*RefreshToken, error) {
+	var t RefreshToken
+	var idBin, userIDBin, familyIDBin, replacedByBin []byte
+	var revokedAt sql.NullTime
+	err := row.Scan(&idBin, &userIDBin, &t.TokenHash, &familyIDBin, &replacedByBin, &t.ExpiresAt, &revokedAt, &t.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrNotFound
+		}
+		return nil, apperr.From(err)
+	}
+	t.ID = ids.Bin16ToString(idBin)
+	t.UserID = ids.Bin16ToString(userIDBin)
+	if len(familyIDBin) > 0 {
+		s := ids.Bin16ToString(familyIDBin)
+		t.FamilyID = &s
+	}
+	if len(replacedByBin) > 0 {
+		s := ids.Bin16ToString(replacedByBin)
+		t.ReplacedBy = &s
+	}
+	if revokedAt.Valid {
+		t.RevokedAt = &revokedAt.Time
+	}
+	return &t, nil
 }
 
 func scanUser(row *sql.Row) (*User, error) {

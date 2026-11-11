@@ -1,20 +1,36 @@
 package auth
 
 import (
+	"log/slog"
 	"net/http"
+	"strings"
 
+	"parking-backend/internal/audit"
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/httpserver"
+	"parking-backend/internal/platform/middleware"
 	"parking-backend/internal/platform/security/ctx"
 	"parking-backend/internal/platform/validate"
 )
 
 type Handler struct {
-	svc *Service
+	svc          *Service
+	loginLimiter *middleware.KeyLimiter
+	auditor      *audit.Service
 }
 
-func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+func NewHandler(svc *Service, loginLimiters ...*middleware.KeyLimiter) *Handler {
+	h := &Handler{svc: svc}
+	if len(loginLimiters) > 0 {
+		h.loginLimiter = loginLimiters[0]
+	}
+	return h
+}
+
+// WithAuditor inyecta el servicio de auditoría para registrar accesos.
+func (h *Handler) WithAuditor(a *audit.Service) *Handler {
+	h.auditor = a
+	return h
 }
 
 type registerReq struct {
@@ -26,8 +42,8 @@ type registerReq struct {
 }
 
 type loginReq struct {
-	Username string `json:"username" validate:"required"`
-	Password string `json:"password" validate:"required"`
+	Username string `json:"username" validate:"required,max=100"`
+	Password string `json:"password" validate:"required,max=128"`
 }
 
 type tokenResp struct {
@@ -106,11 +122,28 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		httpserver.Error(w, err)
 		return
 	}
+	if h.loginLimiter != nil && !h.loginLimiter.Allow(strings.ToLower(req.Username)) {
+		w.Header().Set("Retry-After", "60")
+		httpserver.Error(w, apperr.New(apperr.ErrTooManyRequests, "demasiados intentos para este usuario", http.StatusTooManyRequests, nil))
+		return
+	}
 
 	u, accessTok, refreshTok, err := h.svc.Login(req.Username, req.Password)
 	if err != nil {
+		slog.Warn("auth: login fallido", "username", req.Username, "error", err.Error())
+		if h.auditor != nil {
+			_ = h.auditor.Record(r.Context(), "auth.login_failed", "user", "", nil, map[string]any{
+				"username": req.Username,
+			})
+		}
 		httpserver.Error(w, err)
 		return
+	}
+	if h.auditor != nil {
+		_ = h.auditor.Record(r.Context(), "auth.login", "user", u.ID, nil, map[string]any{
+			"username": u.Username,
+			"role":     u.Role,
+		})
 	}
 	_ = u
 	httpserver.JSON(w, http.StatusOK, tokenResp{

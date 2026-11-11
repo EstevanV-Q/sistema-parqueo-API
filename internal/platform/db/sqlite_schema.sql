@@ -19,12 +19,16 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     id BLOB PRIMARY KEY,
     user_id BLOB NOT NULL,
     token_hash TEXT NOT NULL UNIQUE,
+    family_id BLOB NOT NULL,
+    replaced_by BLOB NULL,
     expires_at TIMESTAMP NOT NULL,
     revoked_at TIMESTAMP NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (replaced_by) REFERENCES refresh_tokens(id)
 );
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family ON refresh_tokens(family_id);
 
 CREATE TABLE IF NOT EXISTS idempotency_keys (
     key TEXT PRIMARY KEY,
