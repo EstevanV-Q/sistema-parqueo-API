@@ -6,14 +6,21 @@ import (
 
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
+	"parking-backend/internal/platform/outbox"
 )
 
 type mysqlSiteRepo struct {
-	db *sql.DB
+	db     *sql.DB
+	outbox *outbox.Store
 }
 
 func NewMySQLSiteRepo(db *sql.DB) SiteRepository {
 	return &mysqlSiteRepo{db: db}
+}
+
+// NewSQLiteSiteRepo usa el mismo contrato y esquema lógico que MySQL.
+func NewSQLiteSiteRepo(db *sql.DB) SiteRepository {
+	return &mysqlSiteRepo{db: db, outbox: outbox.NewStore(db)}
 }
 
 func (r *mysqlSiteRepo) Create(s *Site) error {
@@ -21,11 +28,32 @@ func (r *mysqlSiteRepo) Create(s *Site) error {
 	s.ID = ids.Bin16ToString(idBin)
 	query := `INSERT INTO sites (id, name, code, timezone, currency, capacity_total, is_active)
               VALUES (?, ?, ?, ?, ?, ?, ?)`
-	_, err := r.db.Exec(query, idBin, s.Name, s.Code, s.Timezone, s.Currency, s.CapacityTotal, s.IsActive)
+	nowTime := time.Now().UTC()
+	tx, err := r.db.Begin()
 	if err != nil {
 		return apperr.From(err)
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(query, idBin, s.Name, s.Code, s.Timezone, s.Currency, s.CapacityTotal, s.IsActive)
+	if err != nil {
+		return apperr.From(err)
+	}
+	if err := r.outbox.EnqueueTx(tx, "site", s.ID, "site.created", map[string]any{
+		"site_id":        s.ID,
+		"name":           s.Name,
+		"code":           s.Code,
+		"timezone":       s.Timezone,
+		"currency":       s.Currency,
+		"capacity_total": s.CapacityTotal,
+		"is_active":      s.IsActive,
+	}); err != nil {
+		return apperr.From(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return apperr.From(err)
+	}
+	now := nowTime.Format(time.RFC3339)
 	s.CreatedAt = now
 	s.UpdatedAt = now
 	return nil
@@ -98,11 +126,17 @@ func scanSite(scanner interface {
 }
 
 type mysqlZoneRepo struct {
-	db *sql.DB
+	db     *sql.DB
+	outbox *outbox.Store
 }
 
 func NewMySQLZoneRepo(db *sql.DB) ZoneRepository {
 	return &mysqlZoneRepo{db: db}
+}
+
+// NewSQLiteZoneRepo usa el mismo contrato y esquema lógico que MySQL.
+func NewSQLiteZoneRepo(db *sql.DB) ZoneRepository {
+	return &mysqlZoneRepo{db: db, outbox: outbox.NewStore(db)}
 }
 
 func (r *mysqlZoneRepo) Create(z *Zone) error {
@@ -110,11 +144,31 @@ func (r *mysqlZoneRepo) Create(z *Zone) error {
 	z.ID = ids.Bin16ToString(idBin)
 	query := `INSERT INTO zones (id, site_id, name, type, capacity, is_active)
               VALUES (?, ?, ?, ?, ?, ?)`
-	_, err := r.db.Exec(query, idBin, ids.StringToBin16(z.SiteID), z.Name, z.Type, z.Capacity, z.IsActive)
+	now := time.Now().UTC()
+	tx, err := r.db.Begin()
 	if err != nil {
 		return apperr.From(err)
 	}
-	z.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(query, idBin, ids.StringToBin16(z.SiteID), z.Name, z.Type, z.Capacity, z.IsActive)
+	if err != nil {
+		return apperr.From(err)
+	}
+	if err := r.outbox.EnqueueTx(tx, "zone", z.ID, "zone.created", map[string]any{
+		"zone_id":   z.ID,
+		"site_id":   z.SiteID,
+		"name":      z.Name,
+		"type":      z.Type,
+		"capacity":  z.Capacity,
+		"is_active": z.IsActive,
+	}); err != nil {
+		return apperr.From(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return apperr.From(err)
+	}
+	z.CreatedAt = now.Format(time.RFC3339)
 	return nil
 }
 
@@ -177,11 +231,17 @@ func scanZone(scanner interface {
 }
 
 type mysqlSpaceRepo struct {
-	db *sql.DB
+	db     *sql.DB
+	outbox *outbox.Store
 }
 
 func NewMySQLSpaceRepo(db *sql.DB) SpaceRepository {
 	return &mysqlSpaceRepo{db: db}
+}
+
+// NewSQLiteSpaceRepo usa el mismo contrato y esquema lógico que MySQL.
+func NewSQLiteSpaceRepo(db *sql.DB) SpaceRepository {
+	return &mysqlSpaceRepo{db: db, outbox: outbox.NewStore(db)}
 }
 
 func (r *mysqlSpaceRepo) Create(s *Space) error {
@@ -189,11 +249,31 @@ func (r *mysqlSpaceRepo) Create(s *Space) error {
 	s.ID = ids.Bin16ToString(idBin)
 	query := `INSERT INTO spaces (id, zone_id, code, type, status, is_active)
               VALUES (?, ?, ?, ?, ?, ?)`
-	_, err := r.db.Exec(query, idBin, ids.StringToBin16(s.ZoneID), s.Code, s.Type, s.Status, s.IsActive)
+	nowTime := time.Now().UTC()
+	tx, err := r.db.Begin()
 	if err != nil {
 		return apperr.From(err)
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(query, idBin, ids.StringToBin16(s.ZoneID), s.Code, s.Type, s.Status, s.IsActive)
+	if err != nil {
+		return apperr.From(err)
+	}
+	if err := r.outbox.EnqueueTx(tx, "space", s.ID, "space.created", map[string]any{
+		"space_id":  s.ID,
+		"zone_id":   s.ZoneID,
+		"code":      s.Code,
+		"type":      s.Type,
+		"status":    s.Status,
+		"is_active": s.IsActive,
+	}); err != nil {
+		return apperr.From(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return apperr.From(err)
+	}
+	now := nowTime.Format(time.RFC3339)
 	s.CreatedAt = now
 	s.UpdatedAt = now
 	return nil
@@ -272,11 +352,17 @@ func scanSpace(scanner interface {
 }
 
 type mysqlVehicleTypeRepo struct {
-	db *sql.DB
+	db     *sql.DB
+	outbox *outbox.Store
 }
 
 func NewMySQLVehicleTypeRepo(db *sql.DB) VehicleTypeRepository {
 	return &mysqlVehicleTypeRepo{db: db}
+}
+
+// NewSQLiteVehicleTypeRepo usa el mismo contrato y esquema lógico que MySQL.
+func NewSQLiteVehicleTypeRepo(db *sql.DB) VehicleTypeRepository {
+	return &mysqlVehicleTypeRepo{db: db, outbox: outbox.NewStore(db)}
 }
 
 func (r *mysqlVehicleTypeRepo) Create(v *VehicleType) error {
@@ -284,11 +370,29 @@ func (r *mysqlVehicleTypeRepo) Create(v *VehicleType) error {
 	v.ID = ids.Bin16ToString(idBin)
 	query := `INSERT INTO vehicle_types (id, name, code, is_active)
               VALUES (?, ?, ?, ?)`
-	_, err := r.db.Exec(query, idBin, v.Name, v.Code, v.IsActive)
+	now := time.Now().UTC()
+	tx, err := r.db.Begin()
 	if err != nil {
 		return apperr.From(err)
 	}
-	v.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(query, idBin, v.Name, v.Code, v.IsActive)
+	if err != nil {
+		return apperr.From(err)
+	}
+	if err := r.outbox.EnqueueTx(tx, "vehicle_type", v.ID, "vehicle_type.created", map[string]any{
+		"vehicle_type_id": v.ID,
+		"name":            v.Name,
+		"code":            v.Code,
+		"is_active":       v.IsActive,
+	}); err != nil {
+		return apperr.From(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return apperr.From(err)
+	}
+	v.CreatedAt = now.Format(time.RFC3339)
 	return nil
 }
 

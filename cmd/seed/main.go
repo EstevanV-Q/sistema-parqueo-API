@@ -12,6 +12,8 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 
 	"parking-backend/internal/config"
+	"parking-backend/internal/edge"
+	platformdb "parking-backend/internal/platform/db"
 	"parking-backend/internal/platform/ids"
 	"parking-backend/internal/platform/security"
 )
@@ -20,6 +22,31 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Configuración inválida: %v", err)
+	}
+	if cfg.SeedAdminPassword == "" || cfg.SeedOperatorPassword == "" || cfg.SeedAuditorPassword == "" {
+		log.Fatal("SEED_ADMIN_PASSWORD, SEED_OPERATOR_PASSWORD y SEED_AUDITOR_PASSWORD son requeridos para ejecutar el seed")
+	}
+	if len(cfg.SeedDeviceAPIKey) < 16 {
+		log.Fatal("SEED_DEVICE_API_KEY es requerido y debe tener al menos 16 caracteres")
+	}
+
+	if cfg.IsSQLite() {
+		database, err := platformdb.Open(cfg)
+		if err != nil {
+			log.Fatalf("Error al abrir SQLite: %v", err)
+		}
+		defer func() { _ = database.Close() }()
+		result, err := edge.Seed(database, cfg)
+		if err != nil {
+			log.Fatalf("Error al poblar el borde: %v", err)
+		}
+		log.Println("✅ Seed de borde completado")
+		log.Printf("📍 Sede: %s (ID: %s)", result.SiteName, result.SiteID)
+		log.Printf("🚗 Vehículo abonado: %s", cfg.SeedVehiclePlate)
+		log.Printf("🚧 Dispositivo: %s", result.DeviceID)
+		log.Printf("   IDs: admin=%s operador=%s auditor=%s", result.AdminID, result.OperatorID, result.AuditorID)
+		log.Println("   Usuarios: admin, operador, auditor (contraseñas definidas por variables de entorno)")
+		return
 	}
 
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4",
@@ -184,14 +211,12 @@ func main() {
 	}
 
 	log.Println("✅ Seed completado")
-	log.Printf("🔑 Admin:    admin / %s (todas las sedes)", cfg.SeedAdminPassword)
-	log.Printf("🔑 Operador: operador / %s (sede %s)", cfg.SeedOperatorPassword, cfg.SeedSiteCode)
-	log.Printf("🔑 Auditor:  auditor / %s (solo lectura)", cfg.SeedAuditorPassword)
 	log.Printf("📍 Sede: %s (ID: %s)", cfg.SeedSiteName, siteID)
 	log.Println("🅿️ Espacios: A-01 a A-10")
 	log.Printf("🚗 Vehículo abonado: %s", cfg.SeedVehiclePlate)
-	log.Printf("🚧 Dispositivo: Barrera Principal (X-Device-Key: %s)", cfg.SeedDeviceAPIKey)
+	log.Println("🚧 Dispositivo: Barrera Principal")
 	log.Printf("   IDs: admin=%s operador=%s auditor=%s", adminID, operID, auditorID)
+	log.Println("   Usuarios: admin, operador, auditor (contraseñas definidas por variables de entorno)")
 }
 
 func insertIgnoreAndGet(db *sql.DB, insert string, args []any, selectQuery string, selectArgs ...any) string {

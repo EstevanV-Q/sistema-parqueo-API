@@ -21,6 +21,12 @@ vendor/
 
 # Testing
 coverage.out
+.tmp/
+
+# SQLite local (API de borde)
+*.db
+*.db-shm
+*.db-wal
 
 # Docker
 docker-data/

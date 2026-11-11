@@ -36,6 +36,8 @@ tags:
     description: Auditoría append-only
   - name: realtime
     description: WebSocket de ocupación
+  - name: sync
+    description: Ingesta idempotente de eventos desde APIs de borde
 
 paths:
   /healthz:
@@ -65,7 +67,7 @@ paths:
               required: [username, password]
               properties:
                 username: { type: string, example: admin }
-                password: { type: string, format: password, example: "Admin123!" }
+                password: { type: string, format: password, example: "<password>" }
       responses:
         "200":
           description: Tokens emitidos
@@ -119,6 +121,22 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/v1/auth/ws-ticket:
+    post:
+      summary: Emitir ticket efímero para WebSocket
+      tags: [auth]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Ticket emitido
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ticket: { type: string }
+                  expires_at: { type: string, format: date-time }
         "401": { $ref: "#/components/responses/Unauthorized" }
   /api/v1/auth/register:
     post:
@@ -757,15 +775,56 @@ paths:
       responses:
         "200": { description: Registros de auditoría }
 
+  /api/v1/sync/events:
+    post:
+      summary: Recibir un evento de una API de borde
+      description: |
+        Endpoint del central. Requiere `SYNC_TOKEN` y el encabezado `X-Site-ID`.
+        El evento se guarda en `sync_inbox` de forma idempotente por `id`.
+      tags: [sync]
+      security:
+        - syncToken: []
+      parameters:
+        - in: header
+          name: X-Site-ID
+          required: true
+          schema: { type: string, pattern: "^[0-9a-f]{32}$" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, aggregate_type, aggregate_id, event_type, payload]
+              properties:
+                id: { type: string, pattern: "^[0-9a-f]{32}$" }
+                aggregate_type: { type: string, maxLength: 50 }
+                aggregate_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+                event_type: { type: string, maxLength: 100 }
+                payload: { type: object, additionalProperties: true }
+                created_at: { type: string, format: date-time }
+      responses:
+        "202": { description: Evento aceptado o ya recibido }
+        "400": { description: Evento inválido }
+        "401": { description: Token de sincronización inválido }
+        "403": { description: Sede no autorizada }
+
   /api/v1/ws/occupancy:
     get:
       summary: WebSocket de ocupación por sede
       tags: [realtime]
       parameters:
         - { $ref: "#/components/parameters/SiteID" }
+        - name: ticket
+          in: query
+          required: true
+          schema: { type: string }
+          description: Ticket efímero emitido por /api/v1/auth/ws-ticket
       responses:
         "101": { description: Cambio de protocolo a WebSocket }
         "400": { description: site_id requerido }
+        "401": { description: ticket inválido o expirado }
+        "403": { description: sin acceso a la sede }
 
 components:
   securitySchemes:
@@ -773,6 +832,10 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    syncToken:
+      type: http
+      scheme: bearer
+      description: Token de servicio configurado en SYNC_TOKEN
   parameters:
     SiteID:
       name: site_id

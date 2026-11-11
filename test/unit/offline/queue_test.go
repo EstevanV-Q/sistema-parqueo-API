@@ -1,28 +1,30 @@
-package offline
+package offline_test
 
 import (
 	"context"
 	"errors"
 	"path/filepath"
 	"testing"
+
+	"parking-backend/internal/offline"
 )
 
 func TestQueue_EnqueuePersistAndAck(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "queue.jsonl")
 
-	q, err := OpenQueue(path)
+	q, err := offline.OpenQueue(path)
 	if err != nil {
 		t.Fatalf("OpenQueue: %v", err)
 	}
 
-	if err := q.Enqueue(Event{ID: "e1", Type: "entry"}); err != nil {
+	if err := q.Enqueue(offline.Event{ID: "e1", Type: "entry"}); err != nil {
 		t.Fatalf("Enqueue: %v", err)
 	}
-	if err := q.Enqueue(Event{ID: "e2", Type: "exit"}); err != nil {
+	if err := q.Enqueue(offline.Event{ID: "e2", Type: "exit"}); err != nil {
 		t.Fatalf("Enqueue: %v", err)
 	}
 	// Duplicado por ID: no debe crecer.
-	if err := q.Enqueue(Event{ID: "e1", Type: "entry"}); err != nil {
+	if err := q.Enqueue(offline.Event{ID: "e1", Type: "entry"}); err != nil {
 		t.Fatalf("Enqueue duplicado: %v", err)
 	}
 	if q.Len() != 2 {
@@ -30,7 +32,7 @@ func TestQueue_EnqueuePersistAndAck(t *testing.T) {
 	}
 
 	// Reabrir la cola debe recuperar los eventos.
-	q2, err := OpenQueue(path)
+	q2, err := offline.OpenQueue(path)
 	if err != nil {
 		t.Fatalf("OpenQueue reabrir: %v", err)
 	}
@@ -55,7 +57,7 @@ type fakeRemote struct {
 	sent    []string
 }
 
-func (f *fakeRemote) Send(_ context.Context, e Event) error {
+func (f *fakeRemote) Send(_ context.Context, e offline.Event) error {
 	if f.failIDs[e.ID] {
 		return errors.New("sin red")
 	}
@@ -65,13 +67,13 @@ func (f *fakeRemote) Send(_ context.Context, e Event) error {
 
 func TestSyncer_Run(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "queue.jsonl")
-	q, _ := OpenQueue(path)
-	_ = q.Enqueue(Event{ID: "ok-1", Type: "entry"})
-	_ = q.Enqueue(Event{ID: "fail-1", Type: "entry"})
-	_ = q.Enqueue(Event{ID: "ok-2", Type: "exit"})
+	q, _ := offline.OpenQueue(path)
+	_ = q.Enqueue(offline.Event{ID: "ok-1", Type: "entry"})
+	_ = q.Enqueue(offline.Event{ID: "fail-1", Type: "entry"})
+	_ = q.Enqueue(offline.Event{ID: "ok-2", Type: "exit"})
 
 	remote := &fakeRemote{failIDs: map[string]bool{"fail-1": true}}
-	syncer := NewSyncer(q, remote, 3, 0)
+	syncer := offline.NewSyncer(q, remote, 3, 0)
 
 	res, err := syncer.Run(context.Background())
 	if err != nil {

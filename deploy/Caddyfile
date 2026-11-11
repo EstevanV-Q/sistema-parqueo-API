@@ -1,13 +1,10 @@
 {
-    email admin@parqueo.local
+    # Email opcional para ACME. Si se define ACME_EMAIL en .env, se puede
+    # descomentar la siguiente línea:
+    # email {$ACME_EMAIL}
     admin localhost:2019
 }
 
-localhost {
+{$APP_DOMAIN:localhost} {
     reverse_proxy api:8080
-}
-
-api.parqueo.local {
-    reverse_proxy api:8080
-    tls admin@parqueo.local
 }

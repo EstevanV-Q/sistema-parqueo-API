@@ -16,35 +16,35 @@ variables:
     secret: false
     description: "Usuario admin del seed"
   - name: "adminPassword"
-    value: "Admin123!"
+    value: "CAMBIAR_SEGUN_SEED_ADMIN"
     enabled: true
-    secret: false
-    description: "Contraseña admin del seed"
+    secret: true
+    description: "Contraseña admin definida en SEED_ADMIN_PASSWORD"
   - name: "operatorUser"
     value: "operador"
     enabled: true
     secret: false
     description: "Usuario operator del seed"
   - name: "operatorPassword"
-    value: "Oper123!"
+    value: "CAMBIAR_SEGUN_SEED_OPERATOR"
     enabled: true
-    secret: false
-    description: "Contraseña operator del seed"
+    secret: true
+    description: "Contraseña operator definida en SEED_OPERATOR_PASSWORD"
   - name: "auditorUser"
     value: "auditor"
     enabled: true
     secret: false
     description: "Usuario auditor del seed"
   - name: "auditorPassword"
-    value: "Audit123!"
+    value: "CAMBIAR_SEGUN_SEED_AUDITOR"
     enabled: true
-    secret: false
-    description: "Contraseña auditor del seed"
+    secret: true
+    description: "Contraseña auditor definida en SEED_AUDITOR_PASSWORD"
   - name: "deviceApiKey"
-    value: "device-api-key-001"
+    value: "CAMBIAR_SEGUN_SEED_DEVICE_KEY"
     enabled: true
-    secret: false
-    description: "X-Device-Key del dispositivo demo"
+    secret: true
+    description: "X-Device-Key definida en SEED_DEVICE_API_KEY"
   - name: "accessToken"
     value: ""
     enabled: true

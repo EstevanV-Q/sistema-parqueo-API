@@ -23,6 +23,10 @@ func main() {
 		fmt.Printf("Configuración inválida: %v\n", err)
 		os.Exit(1)
 	}
+	if cfg.IsSQLite() {
+		fmt.Println("El modo SQLite aplica su esquema automáticamente al iniciar la API; no requiere migraciones.")
+		return
+	}
 
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4",
 		cfg.DBUser, cfg.DBPass, cfg.DBHost, cfg.DBPort, cfg.DBName)

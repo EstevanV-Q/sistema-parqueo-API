@@ -1,96 +1,22 @@
-package auth
+package auth_test
 
 import (
 	"testing"
 	"time"
 
+	. "parking-backend/internal/auth"
 	"parking-backend/internal/config"
 	"parking-backend/internal/platform/security"
 )
 
-type fakeRepo struct {
-	users  map[string]*User
-	byID   map[string]*User
-	tokens map[string]*RefreshToken
-}
-
-func newFakeRepo() *fakeRepo {
-	return &fakeRepo{
-		users:  map[string]*User{},
-		byID:   map[string]*User{},
-		tokens: map[string]*RefreshToken{},
-	}
-}
-
-func (f *fakeRepo) Create(u *User) error {
-	if u.ID == "" {
-		u.ID = "user-" + u.Username
-	}
-	f.users[u.Username] = u
-	f.byID[u.ID] = u
-	return nil
-}
-
-func (f *fakeRepo) ByUsername(username string) (*User, error) {
-	u, ok := f.users[username]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	return u, nil
-}
-
-func (f *fakeRepo) ByID(id string) (*User, error) {
-	u, ok := f.byID[id]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	return u, nil
-}
-
-func (f *fakeRepo) UpdateLastLogin(id string, at time.Time) error { return nil }
-
-func (f *fakeRepo) CreateRefreshToken(t *RefreshToken) error {
-	if t.ID == "" {
-		t.ID = "rt-" + t.TokenHash[:8]
-	}
-	f.tokens[t.TokenHash] = t
-	return nil
-}
-
-func (f *fakeRepo) RefreshTokenByHash(hash string) (*RefreshToken, error) {
-	t, ok := f.tokens[hash]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	return t, nil
-}
-
-func (f *fakeRepo) RevokeRefreshToken(id string) error {
-	now := time.Now()
-	for _, t := range f.tokens {
-		if t.ID == id {
-			t.RevokedAt = &now
-		}
-	}
-	return nil
-}
-
-func (f *fakeRepo) RevokeUserRefreshTokens(userID string) error {
-	now := time.Now()
-	for _, t := range f.tokens {
-		if t.UserID == userID {
-			t.RevokedAt = &now
-		}
-	}
-	return nil
-}
-
 func newTestService() (*Service, *fakeRepo) {
 	repo := newFakeRepo()
 	cfg := &config.Config{
-		JWTSecret:  "test-secret",
-		JWTAccess:  time.Minute,
-		JWTRefresh: time.Hour,
+		JWTSecret:   "test-secret",
+		JWTIssuer:   "parking-backend",
+		JWTAudience: "parking-api",
+		JWTAccess:   time.Minute,
+		JWTRefresh:  time.Hour,
 	}
 	return NewService(repo, cfg), repo
 }
@@ -111,7 +37,7 @@ func TestRegisterAndLogin(t *testing.T) {
 		t.Fatal("Login debe devolver access y refresh")
 	}
 
-	claims, err := security.ParseAccessToken("test-secret", access)
+	claims, err := security.ParseAccessToken("test-secret", "parking-backend", "parking-api", access)
 	if err != nil {
 		t.Fatalf("ParseAccessToken: %v", err)
 	}

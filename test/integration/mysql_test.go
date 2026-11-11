@@ -18,8 +18,8 @@ import (
 //
 // Se ejecuta solo si TEST_MYSQL_DSN está definido, por ejemplo:
 //
-//	TEST_MYSQL_DSN="parking_user:parking_pass@tcp(localhost:3306)/parking_test?parseTime=true&charset=utf8mb4" \
-//	  go test ./internal/integration -v
+//	TEST_MYSQL_DSN="usuario:contraseña@tcp(localhost:3306)/parking_test?parseTime=true&charset=utf8mb4" \
+//	  go test ./test/integration -v
 func TestTicketLifecycle_MySQL(t *testing.T) {
 	dsn := os.Getenv("TEST_MYSQL_DSN")
 	if dsn == "" {
@@ -79,8 +79,7 @@ func TestTicketLifecycle_MySQL(t *testing.T) {
 	billingSvc := billing.NewService(billing.NewMySQLRepository(db))
 	parkingSvc := parking.NewService(parking.NewMySQLRepository(db)).
 		WithRatePlanReader(rateplansSvc).
-		WithSpaceUpdater(catalogSvc).
-		WithPaymentCreator(billingSvc)
+		WithSpaceUpdater(catalogSvc)
 
 	// --- Entrada ---
 	ticket, err := parkingSvc.CreateTicket(site.ID, zone.ID, space.ID, "", "TST123", "TST-123", vt.ID, "")

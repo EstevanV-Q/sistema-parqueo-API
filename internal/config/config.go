@@ -17,22 +17,38 @@ type Config struct {
 	LogLevel string
 
 	// Base de datos
-	DBUser    string
-	DBPass    string
-	DBHost    string
-	DBPort    string
-	DBName    string
-	DBMaxOpen int
-	DBMaxIdle int
-	DBMaxLife time.Duration
+	DBDriver   string // mysql (central) o sqlite (borde)
+	SQLitePath string
+	DBUser     string
+	DBPass     string
+	DBHost     string
+	DBPort     string
+	DBName     string
+	DBMaxOpen  int
+	DBMaxIdle  int
+	DBMaxLife  time.Duration
+
+	// Sincronización del borde con la API central
+	EdgeSiteID   string
+	SyncURL      string
+	SyncToken    string
+	SyncInterval time.Duration
 
 	// Seguridad JWT
-	JWTSecret  string
-	JWTAccess  time.Duration
-	JWTRefresh time.Duration
+	JWTSecret   string
+	JWTIssuer   string
+	JWTAudience string
+	JWTAccess   time.Duration
+	JWTRefresh  time.Duration
+
+	// CORS: orígenes permitidos separados por coma.
+	CORSAllowedOrigins []string
 
 	// Zona horaria del sitio
 	SiteTimezone string
+
+	// Tipo de vehículo usado para entradas automáticas por LPR.
+	DefaultVehicleTypeCode string
 
 	// Timeouts HTTP
 	ReadTimeout  time.Duration
@@ -53,23 +69,26 @@ type Config struct {
 	WSURL   string
 }
 
-// required env vars que deben estar definidas siempre
-var requiredEnvVars = []string{
-	"DB_USER",
-	"DB_PASS",
-	"DB_NAME",
-	"JWT_SECRET",
-}
-
 // Load lee la configuración desde el entorno y un archivo .env si existe.
 // Retorna error si faltan variables requeridas o si hay valores inválidos.
 func Load() (*Config, error) {
 	// Cargar .env si existe (solo para desarrollo local)
 	_ = loadEnvFile(".env")
 
-	// Validar variables requeridas
+	driver := strings.ToLower(strings.TrimSpace(getEnv("DB_DRIVER", "mysql")))
+	if driver != "mysql" && driver != "sqlite" {
+		return nil, fmt.Errorf("DB_DRIVER debe ser mysql o sqlite")
+	}
+
+	// Validar variables requeridas según el modo de despliegue.
+	required := []string{"JWT_SECRET"}
+	if driver == "sqlite" {
+		required = append(required, "SQLITE_PATH")
+	} else {
+		required = append(required, "DB_USER", "DB_PASS", "DB_NAME")
+	}
 	var missing []string
-	for _, key := range requiredEnvVars {
+	for _, key := range required {
 		if value, exists := os.LookupEnv(key); !exists || strings.TrimSpace(value) == "" {
 			missing = append(missing, key)
 		}
@@ -90,29 +109,40 @@ func Load() (*Config, error) {
 		Env:      env,
 		LogLevel: getEnv("LOG_LEVEL", "info"),
 
-		DBUser:    getEnv("DB_USER", ""),
-		DBPass:    getEnv("DB_PASS", ""),
-		DBHost:    getEnv("DB_HOST", "localhost"),
-		DBPort:    getEnv("DB_PORT", "3306"),
-		DBName:    getEnv("DB_NAME", ""),
-		DBMaxOpen: getEnvInt("DB_MAX_OPEN", 25),
-		DBMaxIdle: getEnvInt("DB_MAX_IDLE", 25),
-		DBMaxLife: getEnvDuration("DB_MAX_LIFE", "5m"),
+		DBDriver:   driver,
+		SQLitePath: getEnv("SQLITE_PATH", ""),
+		DBUser:     getEnv("DB_USER", ""),
+		DBPass:     getEnv("DB_PASS", ""),
+		DBHost:     getEnv("DB_HOST", "localhost"),
+		DBPort:     getEnv("DB_PORT", "3306"),
+		DBName:     getEnv("DB_NAME", ""),
+		DBMaxOpen:  getEnvInt("DB_MAX_OPEN", 25),
+		DBMaxIdle:  getEnvInt("DB_MAX_IDLE", 25),
+		DBMaxLife:  getEnvDuration("DB_MAX_LIFE", "5m"),
 
-		JWTSecret:  jwtSecret,
-		JWTAccess:  getEnvDuration("JWT_ACCESS", "15m"),
-		JWTRefresh: getEnvDuration("JWT_REFRESH", "72h"),
+		EdgeSiteID:   getEnv("EDGE_SITE_ID", ""),
+		SyncURL:      getEnv("SYNC_URL", ""),
+		SyncToken:    getEnv("SYNC_TOKEN", ""),
+		SyncInterval: getEnvDuration("SYNC_INTERVAL", "30s"),
 
-		SiteTimezone: getEnv("SITE_TIMEZONE", "America/Bogota"),
+		JWTSecret:          jwtSecret,
+		JWTIssuer:          getEnv("JWT_ISSUER", "parking-backend"),
+		JWTAudience:        getEnv("JWT_AUDIENCE", "parking-api"),
+		JWTAccess:          getEnvDuration("JWT_ACCESS", "15m"),
+		JWTRefresh:         getEnvDuration("JWT_REFRESH", "72h"),
+		CORSAllowedOrigins: getEnvList("CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000", "http://localhost:8080", "https://localhost:3000"}),
+
+		SiteTimezone:           getEnv("SITE_TIMEZONE", "America/Bogota"),
+		DefaultVehicleTypeCode: getEnv("DEFAULT_VEHICLE_TYPE_CODE", "car"),
 
 		ReadTimeout:  getEnvDuration("READ_TIMEOUT", "10s"),
 		WriteTimeout: getEnvDuration("WRITE_TIMEOUT", "10s"),
 		IdleTimeout:  getEnvDuration("IDLE_TIMEOUT", "60s"),
 
-		SeedAdminPassword:    getEnv("SEED_ADMIN_PASSWORD", "Admin123!"),
-		SeedOperatorPassword: getEnv("SEED_OPERATOR_PASSWORD", "Oper123!"),
-		SeedAuditorPassword:  getEnv("SEED_AUDITOR_PASSWORD", "Audit123!"),
-		SeedDeviceAPIKey:     getEnv("SEED_DEVICE_API_KEY", "device-api-key-001"),
+		SeedAdminPassword:    getEnv("SEED_ADMIN_PASSWORD", ""),
+		SeedOperatorPassword: getEnv("SEED_OPERATOR_PASSWORD", ""),
+		SeedAuditorPassword:  getEnv("SEED_AUDITOR_PASSWORD", ""),
+		SeedDeviceAPIKey:     getEnv("SEED_DEVICE_API_KEY", ""),
 		SeedSiteCode:         getEnv("SEED_SITE_CODE", "PLAZA-01"),
 		SeedSiteName:         getEnv("SEED_SITE_NAME", "Centro Comercial Plaza"),
 		SeedVehiclePlate:     getEnv("SEED_VEHICLE_PLATE", "XYZ987"),
@@ -130,7 +160,11 @@ func Load() (*Config, error) {
 
 // validate ejecuta validaciones de negocio sobre la configuración cargada.
 func (c *Config) validate() error {
-	if c.DBUser == "" || c.DBPass == "" || c.DBName == "" {
+	if c.IsSQLite() {
+		if strings.TrimSpace(c.SQLitePath) == "" {
+			return fmt.Errorf("SQLITE_PATH es requerido en modo sqlite")
+		}
+	} else if c.DBUser == "" || c.DBPass == "" || c.DBName == "" {
 		return fmt.Errorf("DB_USER, DB_PASS y DB_NAME son requeridos")
 	}
 	if c.JWTSecret == "" {
@@ -139,16 +173,42 @@ func (c *Config) validate() error {
 	if len(c.JWTSecret) < 32 {
 		return fmt.Errorf("JWT_SECRET debe tener al menos 32 caracteres")
 	}
+	if strings.TrimSpace(c.JWTIssuer) == "" {
+		return fmt.Errorf("JWT_ISSUER es requerido")
+	}
+	if strings.TrimSpace(c.JWTAudience) == "" {
+		return fmt.Errorf("JWT_AUDIENCE es requerido")
+	}
 	if c.JWTAccess <= 0 {
 		return fmt.Errorf("JWT_ACCESS debe ser una duración válida mayor a cero")
 	}
 	if c.JWTRefresh <= 0 {
 		return fmt.Errorf("JWT_REFRESH debe ser una duración válida mayor a cero")
 	}
-	if c.DBMaxOpen <= 0 || c.DBMaxIdle <= 0 {
+	if strings.TrimSpace(c.DefaultVehicleTypeCode) == "" {
+		return fmt.Errorf("DEFAULT_VEHICLE_TYPE_CODE es requerido")
+	}
+	if !c.IsSQLite() && (c.DBMaxOpen <= 0 || c.DBMaxIdle <= 0) {
 		return fmt.Errorf("DB_MAX_OPEN y DB_MAX_IDLE deben ser mayores a cero")
 	}
+	if c.SyncInterval <= 0 {
+		return fmt.Errorf("SYNC_INTERVAL debe ser una duración válida mayor a cero")
+	}
+	if c.SyncURL != "" && c.SyncToken == "" {
+		return fmt.Errorf("SYNC_TOKEN es requerido cuando SYNC_URL está configurado")
+	}
+	if c.IsSQLite() && c.SyncURL != "" && c.EdgeSiteID == "" {
+		return fmt.Errorf("EDGE_SITE_ID es requerido para sincronizar una sede")
+	}
+	if c.EdgeSiteID != "" && len(c.EdgeSiteID) != 32 {
+		return fmt.Errorf("EDGE_SITE_ID debe ser un UUID de 32 caracteres hexadecimales")
+	}
 	return nil
+}
+
+// IsSQLite indica si el proceso opera como API de borde local.
+func (c *Config) IsSQLite() bool {
+	return c.DBDriver == "sqlite"
 }
 
 // isWeakSecret detecta secretos por defecto o débiles.
@@ -173,6 +233,24 @@ func getEnv(key, fallback string) string {
 		return val
 	}
 	return fallback
+}
+
+func getEnvList(key string, fallback []string) []string {
+	val := getEnv(key, "")
+	if val == "" {
+		return fallback
+	}
+	parts := strings.Split(val, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if item := strings.TrimSpace(part); item != "" {
+			out = append(out, item)
+		}
+	}
+	if len(out) == 0 {
+		return fallback
+	}
+	return out
 }
 
 func getEnvInt(key string, fallback int) int {

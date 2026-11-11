@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop, dev ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main, develop, dev ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -34,6 +35,11 @@ jobs:
           install-mode: goinstall
           args: --timeout=5m
 
+      - name: govulncheck (vulnerabilidades conocidas, bloqueante)
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
       - name: gosec (análisis estático de seguridad)
         uses: securego/gosec@v2.30.0
         with:
@@ -55,13 +61,13 @@ jobs:
       mysql:
         image: mysql:8.0
         env:
-          MYSQL_ROOT_PASSWORD: rootpassword
+          MYSQL_ROOT_PASSWORD: ci-root-${{ github.run_id }}-${{ github.run_attempt }}
           MYSQL_DATABASE: parking_db
           MYSQL_USER: parking_user
-          MYSQL_PASSWORD: parking_pass
+          MYSQL_PASSWORD: ci-app-${{ github.run_id }}-${{ github.run_attempt }}
         ports: ["3306:3306"]
         options: >-
-          --health-cmd="mysqladmin ping -h localhost -u root -prootpassword"
+          --health-cmd="mysqladmin ping -h localhost -u root -pci-root-${{ github.run_id }}-${{ github.run_attempt }}"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
@@ -82,11 +88,11 @@ jobs:
       - name: Ejecutar tests con cobertura
         env:
           DB_USER: parking_user
-          DB_PASS: parking_pass
+          DB_PASS: ci-app-${{ github.run_id }}-${{ github.run_attempt }}
           DB_HOST: localhost
           DB_PORT: 3306
           DB_NAME: parking_db
-          JWT_SECRET: test-secret-do-not-use-in-production
+          JWT_SECRET: ci-jwt-${{ github.run_id }}-${{ github.run_attempt }}-at-least-32-chars
           JWT_ACCESS: 15m
           JWT_REFRESH: 72h
           PORT: 8080

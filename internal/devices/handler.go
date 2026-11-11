@@ -5,6 +5,7 @@ import (
 
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/httpserver"
+	"parking-backend/internal/platform/middleware"
 	"parking-backend/internal/platform/validate"
 )
 
@@ -33,6 +34,10 @@ func (h *Handler) RegisterDevice(w http.ResponseWriter, r *http.Request) {
 		httpserver.Error(w, err)
 		return
 	}
+	if err := middleware.CheckSiteAccess(r.Context(), req.SiteID); err != nil {
+		httpserver.Error(w, err)
+		return
+	}
 
 	d, err := h.svc.RegisterDevice(req.SiteID, req.Name, req.Type, req.APIKey)
 	if err != nil {
@@ -46,6 +51,10 @@ func (h *Handler) ListDevices(w http.ResponseWriter, r *http.Request) {
 	siteID := r.URL.Query().Get("site_id")
 	if siteID == "" {
 		httpserver.Error(w, apperr.New(apperr.ErrInvalidInput, "site_id requerido", http.StatusBadRequest, nil))
+		return
+	}
+	if err := middleware.CheckSiteAccess(r.Context(), siteID); err != nil {
+		httpserver.Error(w, err)
 		return
 	}
 	list, err := h.svc.ListBySite(siteID)

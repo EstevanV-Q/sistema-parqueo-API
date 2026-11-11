@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"parking-backend/internal/platform/apperr"
@@ -28,10 +29,19 @@ func Error(w http.ResponseWriter, err error) {
 		err = apperr.New(apperr.ErrInternal, "error interno", http.StatusInternalServerError, nil)
 	}
 	e := apperr.From(err)
+	message := e.Message
+	var details map[string]any
+	if e.Code == apperr.ErrInternal {
+		// Nunca exponer detalles de SQL, rutas o errores internos al cliente.
+		message = "error interno"
+		slog.Error("error interno en petición", "message", e.Message, "error", e.Err)
+	} else {
+		details = e.Details
+	}
 	JSON(w, e.HTTPStatus, map[string]any{
 		"code":    e.Code,
-		"message": e.Message,
-		"details": e.Details,
+		"message": message,
+		"details": details,
 	})
 }
 

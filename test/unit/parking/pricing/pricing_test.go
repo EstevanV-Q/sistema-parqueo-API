@@ -1,9 +1,10 @@
-package pricing
+package pricing_test
 
 import (
 	"testing"
 	"time"
 
+	. "parking-backend/internal/parking/pricing"
 	"parking-backend/internal/shared/money"
 	"parking-backend/internal/shared/plate"
 )

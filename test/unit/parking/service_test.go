@@ -1,9 +1,10 @@
-package parking
+package parking_test
 
 import (
 	"testing"
 	"time"
 
+	. "parking-backend/internal/parking"
 	"parking-backend/internal/platform/apperr"
 )
 
@@ -14,6 +15,7 @@ type fakeRepo struct {
 	events    []TicketEvent
 	spaceOpen map[string]string
 	plateOpen map[string]string
+	settleErr error
 }
 
 func newFakeRepo() *fakeRepo {
@@ -78,7 +80,56 @@ func (f *fakeRepo) LatestByPlateSite(plateNormalized, siteID string) (*Ticket, e
 }
 
 func (f *fakeRepo) SettleTicketTx(ticketID string, exitAt time.Time, totalCents, paidCents int64, method string, cashierUserID string) error {
-	return apperr.New("UNSUPPORTED", "use fallback in fake", 500, nil)
+	if f.settleErr != nil {
+		return f.settleErr
+	}
+	t, ok := f.tickets[ticketID]
+	if !ok {
+		return apperr.New(apperr.ErrNotFound, "ticket no encontrado", 404, nil)
+	}
+	if !t.IsOpen() {
+		return ErrTicketNotOpen
+	}
+	t.ExitAt = &exitAt
+	t.TotalCents = totalCents
+	t.PaidCents = paidCents
+	t.Status = TicketPaid
+	if t.SpaceID != nil {
+		delete(f.spaceOpen, *t.SpaceID)
+	}
+	delete(f.plateOpen, t.PlateNormalized+"|"+t.SiteID)
+
+	event := &TicketEvent{TicketID: t.ID, EventType: "exit", Details: "vehiculo_pagado_salido"}
+	if cashierUserID != "" {
+		event.ActorUserID = &cashierUserID
+	}
+	f.events = append(f.events, *event)
+	return nil
+}
+
+func (f *fakeRepo) CancelTicketTx(ticketID string, exitAt time.Time, actorUserID string) error {
+	t, ok := f.tickets[ticketID]
+	if !ok {
+		return apperr.New(apperr.ErrNotFound, "ticket no encontrado", 404, nil)
+	}
+	if !t.IsOpen() {
+		return ErrTicketNotOpen
+	}
+	t.ExitAt = &exitAt
+	t.TotalCents = 0
+	t.PaidCents = 0
+	t.Status = TicketCancelled
+	if t.SpaceID != nil {
+		delete(f.spaceOpen, *t.SpaceID)
+	}
+	delete(f.plateOpen, t.PlateNormalized+"|"+t.SiteID)
+
+	event := &TicketEvent{TicketID: t.ID, EventType: "cancel", Details: "ticket_cancelado"}
+	if actorUserID != "" {
+		event.ActorUserID = &actorUserID
+	}
+	f.events = append(f.events, *event)
+	return nil
 }
 
 func (f *fakeRepo) Update(t *Ticket) error {
@@ -159,6 +210,18 @@ func testPlan(id string) *RatePlan {
 	}
 }
 
+type fakeVehicleTypes struct {
+	id  string
+	err error
+}
+
+func (f fakeVehicleTypes) VehicleTypeIDByCode(code string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.id, nil
+}
+
 type fakeSpaces struct {
 	statuses map[string]string
 }
@@ -186,15 +249,6 @@ func (f *fakeSubscriptions) ValidateByPlate(plateNormalized, siteID string, now 
 	return &Subscription{ID: "sub-1", VehicleID: "veh-1", SiteID: siteID, Status: SubActive}, nil
 }
 
-type fakePayments struct {
-	calls []string
-}
-
-func (f *fakePayments) CreatePayment(ticketID string, amountCents int64, method, cashierUserID string) (string, error) {
-	f.calls = append(f.calls, ticketID)
-	return "payment-1", nil
-}
-
 type fakePublisher struct {
 	events []string
 }
@@ -207,27 +261,27 @@ func (f *fakePublisher) Publish(siteID, event string, payload map[string]any) {
 
 var fixedNow = time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 
-func newTestService() (*Service, *fakeRepo, *fakeSpaces, *fakePayments, *fakePublisher) {
+func newTestService() (*Service, *fakeRepo, *fakeSpaces, *fakePublisher) {
 	repo := newFakeRepo()
 	spaces := &fakeSpaces{statuses: map[string]string{}}
-	payments := &fakePayments{}
 	publisher := &fakePublisher{}
 
 	svc := NewService(repo).
 		WithRatePlanReader(fakeRatePlans{}).
 		WithSpaceUpdater(spaces).
 		WithSubscriptionChecker(&fakeSubscriptions{}).
-		WithPaymentCreator(payments).
+		WithVehicleTypeResolver(fakeVehicleTypes{id: "type-1"}).
+		WithDefaultVehicleType("car").
 		WithEventPublisher(publisher)
-	svc.now = func() time.Time { return fixedNow }
+	svc.WithClock(func() time.Time { return fixedNow })
 
-	return svc, repo, spaces, payments, publisher
+	return svc, repo, spaces, publisher
 }
 
 // ---------- Tests ----------
 
 func TestCreateTicket_UsesDefaultPlanAndOccupiesSpace(t *testing.T) {
-	svc, _, spaces, _, publisher := newTestService()
+	svc, _, spaces, publisher := newTestService()
 
 	ticket, err := svc.CreateTicket("site-1", "zone-1", "space-1", "veh-1", "ABC123", "ABC-123", "car", "")
 	if err != nil {
@@ -248,7 +302,7 @@ func TestCreateTicket_UsesDefaultPlanAndOccupiesSpace(t *testing.T) {
 }
 
 func TestCreateTicket_RejectsDuplicatePlate(t *testing.T) {
-	svc, _, _, _, _ := newTestService()
+	svc, _, _, _ := newTestService()
 
 	if _, err := svc.CreateTicket("site-1", "zone-1", "space-1", "", "ABC123", "ABC-123", "car", ""); err != nil {
 		t.Fatalf("primer ingreso: %v", err)
@@ -260,7 +314,7 @@ func TestCreateTicket_RejectsDuplicatePlate(t *testing.T) {
 }
 
 func TestCreateTicket_RejectsOccupiedSpace(t *testing.T) {
-	svc, _, _, _, _ := newTestService()
+	svc, _, _, _ := newTestService()
 
 	if _, err := svc.CreateTicket("site-1", "zone-1", "space-1", "", "ABC123", "ABC-123", "car", ""); err != nil {
 		t.Fatalf("primer ingreso: %v", err)
@@ -272,7 +326,7 @@ func TestCreateTicket_RejectsOccupiedSpace(t *testing.T) {
 }
 
 func TestQuoteAndSettle(t *testing.T) {
-	svc, repo, spaces, payments, publisher := newTestService()
+	svc, repo, spaces, publisher := newTestService()
 
 	ticket, err := svc.CreateTicket("site-1", "zone-1", "space-1", "veh-1", "ABC123", "ABC-123", "car", "")
 	if err != nil {
@@ -302,8 +356,16 @@ func TestQuoteAndSettle(t *testing.T) {
 	if spaces.statuses["space-1"] != "free" {
 		t.Fatalf("estado del espacio = %q, quiere free", spaces.statuses["space-1"])
 	}
-	if len(payments.calls) != 1 || payments.calls[0] != ticket.ID {
-		t.Fatalf("pagos = %v", payments.calls)
+	events, err := repo.Events(ticket.ID)
+	if err != nil {
+		t.Fatalf("Events: %v", err)
+	}
+	if len(events) == 0 || events[len(events)-1].EventType != "exit" {
+		t.Fatalf("eventos del ticket = %+v, quiere un evento exit al final", events)
+	}
+	last := events[len(events)-1]
+	if last.ActorUserID == nil || *last.ActorUserID != "user-1" {
+		t.Fatalf("actor del evento = %v, quiere user-1", last.ActorUserID)
 	}
 	if len(publisher.events) != 2 || publisher.events[1] != "ticket.exited" {
 		t.Fatalf("eventos = %v", publisher.events)
@@ -311,7 +373,7 @@ func TestQuoteAndSettle(t *testing.T) {
 }
 
 func TestSettle_RejectsUnderpayment(t *testing.T) {
-	svc, repo, _, _, _ := newTestService()
+	svc, repo, _, _ := newTestService()
 
 	ticket, _ := svc.CreateTicket("site-1", "zone-1", "space-1", "", "ABC123", "ABC-123", "car", "")
 	repo.tickets[ticket.ID].EntryAt = fixedNow.Add(-2 * time.Hour)
@@ -322,12 +384,95 @@ func TestSettle_RejectsUnderpayment(t *testing.T) {
 	}
 }
 
+func TestSettle_DoesNotFallbackWhenAtomicTransactionFails(t *testing.T) {
+	svc, repo, spaces, _ := newTestService()
+
+	ticket, _ := svc.CreateTicket("site-1", "zone-1", "space-1", "", "ABC123", "ABC-123", "car", "")
+	repo.tickets[ticket.ID].EntryAt = fixedNow.Add(-2 * time.Hour)
+	repo.settleErr = apperr.New("DB_ERROR", "fallo simulado", 500, nil)
+
+	_, quote, err := svc.Quote(ticket.ID)
+	if err != nil {
+		t.Fatalf("Quote: %v", err)
+	}
+	if _, err := svc.Settle(ticket.ID, int64(quote.Amount), "cash", "user-1"); err == nil {
+		t.Fatal("Settle debió fallar y no aplicar un cierre parcial")
+	}
+	if repo.tickets[ticket.ID].Status != TicketOpen {
+		t.Fatalf("status = %s, el ticket debe seguir abierto", repo.tickets[ticket.ID].Status)
+	}
+	if spaces.statuses["space-1"] != "occupied" {
+		t.Fatalf("estado del espacio = %q, debe seguir occupied", spaces.statuses["space-1"])
+	}
+}
+
+func TestCancel_IsAtomicAndRecordsActor(t *testing.T) {
+	svc, repo, spaces, publisher := newTestService()
+
+	ticket, _ := svc.CreateTicket("site-1", "zone-1", "space-1", "", "ABC123", "ABC-123", "car", "")
+	cancelled, err := svc.Cancel(ticket.ID, "user-1")
+	if err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if cancelled.Status != TicketCancelled {
+		t.Fatalf("status = %s, quiere cancelled", cancelled.Status)
+	}
+	if spaces.statuses["space-1"] != "free" {
+		t.Fatalf("estado del espacio = %q, quiere free", spaces.statuses["space-1"])
+	}
+	events, err := repo.Events(ticket.ID)
+	if err != nil {
+		t.Fatalf("Events: %v", err)
+	}
+	if len(events) == 0 || events[len(events)-1].EventType != "cancel" {
+		t.Fatalf("eventos = %+v, quiere un evento cancel al final", events)
+	}
+	last := events[len(events)-1]
+	if last.ActorUserID == nil || *last.ActorUserID != "user-1" {
+		t.Fatalf("actor = %v, quiere user-1", last.ActorUserID)
+	}
+	if len(publisher.events) != 2 || publisher.events[1] != "ticket.cancelled" {
+		t.Fatalf("eventos publicados = %v", publisher.events)
+	}
+}
+
+func TestAutoEnterUsesResolvedVehicleType(t *testing.T) {
+	svc, repo, _, _ := newTestService()
+
+	ticketID, err := svc.AutoEnter("site-1", "ABC123")
+	if err != nil {
+		t.Fatalf("AutoEnter: %v", err)
+	}
+	ticket, err := repo.ByID(ticketID)
+	if err != nil {
+		t.Fatalf("ByID: %v", err)
+	}
+	if ticket.TypeID != "type-1" {
+		t.Fatalf("type_id = %q, quiere type-1", ticket.TypeID)
+	}
+}
+
+func TestAutoEnterFailsClosedWhenVehicleTypeCannotBeResolved(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo).
+		WithVehicleTypeResolver(fakeVehicleTypes{err: apperr.New(apperr.ErrNotFound, "tipo no encontrado", 404, nil)}).
+		WithDefaultVehicleType("car")
+	svc.WithClock(func() time.Time { return fixedNow })
+
+	if _, err := svc.AutoEnter("site-1", "ABC123"); err == nil {
+		t.Fatal("AutoEnter debe fallar si no puede resolver el tipo de vehículo")
+	}
+	if len(repo.tickets) != 0 {
+		t.Fatalf("no debe crear tickets, hay %d", len(repo.tickets))
+	}
+}
+
 func TestQuote_SubscriptionIsFree(t *testing.T) {
-	svc, _, _, _, _ := newTestService()
+	svc, repo, _, _ := newTestService()
 
 	ticket, _ := svc.CreateTicket("site-1", "zone-1", "space-1", "veh-1", "ABC123", "ABC-123", "car", "")
 	plan := "subscription"
-	svc.repo.(*fakeRepo).tickets[ticket.ID].RatePlanID = &plan
+	repo.tickets[ticket.ID].RatePlanID = &plan
 
 	_, quote, err := svc.Quote(ticket.ID)
 	if err != nil {
@@ -339,7 +484,7 @@ func TestQuote_SubscriptionIsFree(t *testing.T) {
 }
 
 func TestAuthorizeEntryAndExit(t *testing.T) {
-	svc, _, _, _, _ := newTestService()
+	svc, repo, _, _ := newTestService()
 
 	allow, _, err := svc.AuthorizeEntry("site-1", "ABC123")
 	if err != nil || !allow {
@@ -365,7 +510,7 @@ func TestAuthorizeEntryAndExit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTicket: %v", err)
 	}
-	svc.repo.(*fakeRepo).tickets[tkt.ID].EntryAt = fixedNow.Add(-2 * time.Hour)
+	repo.tickets[tkt.ID].EntryAt = fixedNow.Add(-2 * time.Hour)
 
 	allow, reason, _ := svc.AuthorizeExit("site-1", "DEF456")
 	if allow {

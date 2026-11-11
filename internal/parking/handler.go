@@ -113,6 +113,15 @@ func (h *Handler) Settle(w http.ResponseWriter, r *http.Request) {
 		httpserver.Error(w, err)
 		return
 	}
+	current, err := h.svc.repo.ByID(id)
+	if err != nil {
+		httpserver.Error(w, err)
+		return
+	}
+	if err := middleware.CheckSiteAccess(r.Context(), current.SiteID); err != nil {
+		httpserver.Error(w, err)
+		return
+	}
 
 	ticket, err := h.svc.Settle(id, req.PaidCents, req.Method, userID(r))
 	if err != nil {
@@ -123,6 +132,7 @@ func (h *Handler) Settle(w http.ResponseWriter, r *http.Request) {
 	h.record(r, "ticket.settle", ticket.ID,
 		map[string]any{"status": TicketOpen},
 		map[string]any{
+			"site_id":     ticket.SiteID,
 			"status":      ticket.Status,
 			"total_cents": ticket.TotalCents,
 			"paid_cents":  ticket.PaidCents,
@@ -135,6 +145,15 @@ func (h *Handler) Settle(w http.ResponseWriter, r *http.Request) {
 // Cancel anula un ticket abierto.
 func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	current, err := h.svc.repo.ByID(id)
+	if err != nil {
+		httpserver.Error(w, err)
+		return
+	}
+	if err := middleware.CheckSiteAccess(r.Context(), current.SiteID); err != nil {
+		httpserver.Error(w, err)
+		return
+	}
 	ticket, err := h.svc.Cancel(id, userID(r))
 	if err != nil {
 		httpserver.Error(w, err)
@@ -143,7 +162,7 @@ func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
 
 	h.record(r, "ticket.cancel", ticket.ID,
 		map[string]any{"status": TicketOpen},
-		map[string]any{"status": TicketCancelled})
+		map[string]any{"site_id": ticket.SiteID, "status": TicketCancelled})
 
 	httpserver.JSON(w, http.StatusOK, ticket)
 }

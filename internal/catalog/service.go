@@ -99,6 +99,10 @@ func (s *Service) ListZones(siteID string) ([]*Zone, error) {
 	return s.zoneRepo.ListBySite(siteID)
 }
 
+func (s *Service) GetZone(id string) (*Zone, error) {
+	return s.zoneRepo.ByID(id)
+}
+
 func (s *Service) UpdateZone(id, name, typ string, capacity int, active bool) (*Zone, error) {
 	zone, err := s.zoneRepo.ByID(id)
 	if err != nil {
@@ -145,6 +149,23 @@ func (s *Service) CreateSpace(zoneID, code, typ string) (*Space, error) {
 
 func (s *Service) ListSpaces(zoneID string) ([]*Space, error) {
 	return s.spaceRepo.ListByZone(zoneID)
+}
+
+func (s *Service) GetSpace(id string) (*Space, error) {
+	return s.spaceRepo.ByID(id)
+}
+
+// SiteIDForSpace resuelve la sede de un espacio pasando por su zona.
+func (s *Service) SiteIDForSpace(id string) (string, error) {
+	space, err := s.spaceRepo.ByID(id)
+	if err != nil {
+		return "", err
+	}
+	zone, err := s.zoneRepo.ByID(space.ZoneID)
+	if err != nil {
+		return "", err
+	}
+	return zone.SiteID, nil
 }
 
 func (s *Service) UpdateSpace(id, code, typ, status string, active bool) (*Space, error) {
@@ -197,6 +218,22 @@ func (s *Service) CreateVehicleType(name, code string) (*VehicleType, error) {
 
 func (s *Service) ListVehicleTypes() ([]*VehicleType, error) {
 	return s.vtRepo.List()
+}
+
+// VehicleTypeIDByCode resuelve el ID de un tipo de vehículo activo por su código.
+// Se usa para entradas automáticas LPR, donde no hay un tipo explícito.
+func (s *Service) VehicleTypeIDByCode(code string) (string, error) {
+	if code == "" {
+		return "", apperr.New(apperr.ErrInvalidInput, "el código de tipo de vehículo es requerido", 400, nil)
+	}
+	vt, err := s.vtRepo.ByCode(code)
+	if err != nil {
+		return "", err
+	}
+	if !vt.IsActive {
+		return "", apperr.New(apperr.ErrNotFound, "tipo de vehículo inactivo", 404, nil)
+	}
+	return vt.ID, nil
 }
 
 func (s *Service) UpdateVehicleType(id, name, code string, active bool) (*VehicleType, error) {

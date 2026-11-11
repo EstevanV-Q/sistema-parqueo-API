@@ -1,8 +1,9 @@
-package billing
+package billing_test
 
 import (
 	"testing"
 
+	. "parking-backend/internal/billing"
 	"parking-backend/internal/platform/apperr"
 )
 
