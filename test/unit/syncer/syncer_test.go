@@ -42,7 +42,7 @@ func TestWorkerRetriesAndMarksSent(t *testing.T) {
 	}
 
 	sender := &flakySender{failFirst: true}
-	worker := syncer.NewWorker(store, sender, 3, time.Millisecond)
+	worker := syncer.NewWorker(store, sender, 3, time.Hour)
 
 	result, err := worker.RunOnce(context.Background())
 	if err != nil {
@@ -59,7 +59,11 @@ func TestWorkerRetriesAndMarksSent(t *testing.T) {
 		t.Fatalf("el evento debe esperar backoff, pendientes = %d", len(pending))
 	}
 
-	time.Sleep(10 * time.Millisecond)
+	// Simular que ya pasó el backoff sin depender de un sleep corto.
+	if _, err := database.Exec(`UPDATE outbox SET next_attempt_at = ? WHERE aggregate_id = ?`,
+		time.Now().UTC().Add(-time.Second), ids.StringToBin16(eventID)); err != nil {
+		t.Fatalf("adelantar backoff: %v", err)
+	}
 
 	result, err = worker.RunOnce(context.Background())
 	if err != nil {
