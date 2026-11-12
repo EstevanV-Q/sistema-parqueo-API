@@ -13,30 +13,44 @@ const (
 
 // User del sistema.
 type User struct {
-	ID           string
-	Username     string
-	Email        string
-	PasswordHash string
-	Role         Role
-	SiteID       *string // nil = acceso a todas las sedes (admin)
-	Active       bool
-	CreatedAt    string
-	LastLogin    *string
+	ID                  string     `json:"id"`
+	Username            string     `json:"username"`
+	Email               string     `json:"email"`
+	PasswordHash        string     `json:"-"`
+	Role                Role       `json:"role"`
+	SiteID              *string    `json:"site_id,omitempty"`
+	Active              bool       `json:"active"`
+	CreatedAt           string     `json:"created_at,omitempty"`
+	LastLogin           *string    `json:"last_login,omitempty"`
+	TOTPSecret          *string    `json:"-"`
+	TOTPEnabled         bool       `json:"totp_enabled"`
+	FailedLoginAttempts int        `json:"-"`
+	LockedUntil         *time.Time `json:"-"`
 }
 
 // RefreshToken representa un refresh token persistido (solo se guarda su hash).
 type RefreshToken struct {
-	ID         string
-	UserID     string
-	TokenHash  string
-	FamilyID   *string
-	ReplacedBy *string
-	ExpiresAt  time.Time
-	RevokedAt  *time.Time
-	CreatedAt  time.Time
+	ID         string     `json:"id"`
+	UserID     string     `json:"user_id"`
+	TokenHash  string     `json:"-"`
+	FamilyID   *string    `json:"family_id,omitempty"`
+	ReplacedBy *string    `json:"replaced_by,omitempty"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
 }
 
-// IsValid devuelve true si el token no está revocado ni expirado.
+// PasswordResetToken representa un token de recuperación de contraseña.
+type PasswordResetToken struct {
+	ID        string     `json:"id"`
+	UserID    string     `json:"user_id"`
+	TokenHash string     `json:"-"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	UsedAt    *time.Time `json:"used_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+// IsValid devuelve true si el token de refresh no está revocado ni expirado.
 func (t *RefreshToken) IsValid(now time.Time) bool {
 	return t.RevokedAt == nil && now.Before(t.ExpiresAt)
 }

@@ -24,12 +24,12 @@ func newTestService() (*Service, *fakeRepo) {
 func TestRegisterAndLogin(t *testing.T) {
 	svc, _ := newTestService()
 
-	u, err := svc.Register("admin", "admin@test.com", "Admin123!", RoleAdmin, nil)
+	u, err := svc.Register("admin", "admin@test.com", "Admin123!Strong", RoleAdmin, nil)
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 
-	_, access, refresh, err := svc.Login("admin", "Admin123!")
+	_, access, refresh, err := svc.Login("admin", "Admin123!Strong")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestRegisterAndLogin(t *testing.T) {
 
 func TestLogin_WrongPassword(t *testing.T) {
 	svc, _ := newTestService()
-	if _, err := svc.Register("admin", "admin@test.com", "Admin123!", RoleAdmin, nil); err != nil {
+	if _, err := svc.Register("admin", "admin@test.com", "Admin123!Strong", RoleAdmin, nil); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 
@@ -59,10 +59,10 @@ func TestLogin_WrongPassword(t *testing.T) {
 
 func TestRefresh_RotatesAndRevokesOldToken(t *testing.T) {
 	svc, _ := newTestService()
-	if _, err := svc.Register("admin", "admin@test.com", "Admin123!", RoleAdmin, nil); err != nil {
+	if _, err := svc.Register("admin", "admin@test.com", "Admin123!Strong", RoleAdmin, nil); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	_, _, refresh, err := svc.Login("admin", "Admin123!")
+	_, _, refresh, err := svc.Login("admin", "Admin123!Strong")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -96,10 +96,10 @@ func TestRefresh_RotatesAndRevokesOldToken(t *testing.T) {
 
 func TestLogout_RevokesToken(t *testing.T) {
 	svc, _ := newTestService()
-	if _, err := svc.Register("admin", "admin@test.com", "Admin123!", RoleAdmin, nil); err != nil {
+	if _, err := svc.Register("admin", "admin@test.com", "Admin123!Strong", RoleAdmin, nil); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	_, _, refresh, err := svc.Login("admin", "Admin123!")
+	_, _, refresh, err := svc.Login("admin", "Admin123!Strong")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -114,10 +114,10 @@ func TestLogout_RevokesToken(t *testing.T) {
 
 func TestRegister_Duplicate(t *testing.T) {
 	svc, _ := newTestService()
-	if _, err := svc.Register("admin", "admin@test.com", "Admin123!", RoleAdmin, nil); err != nil {
+	if _, err := svc.Register("admin", "admin@test.com", "Admin123!Strong", RoleAdmin, nil); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	if _, err := svc.Register("admin", "otro@test.com", "Admin123!", RoleAdmin, nil); err == nil {
+	if _, err := svc.Register("admin", "otro@test.com", "Admin123!Strong", RoleAdmin, nil); err == nil {
 		t.Fatal("un usuario duplicado debe fallar")
 	}
 }

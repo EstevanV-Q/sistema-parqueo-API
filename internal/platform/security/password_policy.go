@@ -5,10 +5,8 @@ import (
 	"strings"
 )
 
-// ValidateSeedPassword aplica una política mínima a las contraseñas usadas por
-// el comando seed. No se aplica al registro normal para no romper clientes
-// existentes, pero el seed solo debe crear credenciales robustas.
-func ValidateSeedPassword(password string) error {
+// ValidatePassword aplica la política de contraseñas para altas y cambios.
+func ValidatePassword(password string) error {
 	if len(password) < 12 {
 		return fmt.Errorf("debe tener al menos 12 caracteres")
 	}
@@ -25,4 +23,9 @@ func ValidateSeedPassword(password string) error {
 		}
 	}
 	return nil
+}
+
+// ValidateSeedPassword mantiene el nombre histórico para el comando seed.
+func ValidateSeedPassword(password string) error {
+	return ValidatePassword(password)
 }

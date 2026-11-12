@@ -242,8 +242,8 @@ func buildRouter(
 	r.Use(chimiddleware.RequestID)
 	r.Use(platmiddleware.RequestIDHeader)
 	r.Use(chimiddleware.Recoverer)
-	r.Use(chimiddleware.Logger)
 	r.Use(platmiddleware.RequestInfo)
+	r.Use(platmiddleware.RequestLogger)
 	r.Use(platmiddleware.CORS)
 	r.Use(httpserver.MaxBytes(1 << 20))
 
@@ -279,9 +279,17 @@ func buildRouter(
 			r.With(platmiddleware.RateLimit(10, time.Minute)).Post("/login", authHandler.Login)
 			r.With(platmiddleware.RateLimit(30, time.Minute)).Post("/refresh", authHandler.RefreshHandler)
 			r.Post("/logout", authHandler.LogoutHandler)
+			r.With(platmiddleware.RateLimit(5, time.Minute)).Post("/password-reset/request", authHandler.RequestPasswordReset)
+			r.With(platmiddleware.RateLimit(10, time.Minute)).Post("/password-reset/confirm", authHandler.ConfirmPasswordReset)
 
 			r.With(authMW.Handler).Get("/me", authHandler.MeHandler)
 			r.With(authMW.Handler).Post("/ws-ticket", authHandler.WSTicketHandler)
+			r.With(authMW.Handler).Get("/sessions", authHandler.ListSessions)
+			r.With(authMW.Handler).Delete("/sessions/{id}", authHandler.RevokeSession)
+			r.With(authMW.Handler).Post("/logout-all", authHandler.LogoutAll)
+			r.With(authMW.Handler, platmiddleware.RequireRole("admin")).Post("/totp/setup", authHandler.SetupTOTP)
+			r.With(authMW.Handler, platmiddleware.RequireRole("admin")).Post("/totp/enable", authHandler.EnableTOTP)
+			r.With(authMW.Handler, platmiddleware.RequireRole("admin")).Post("/totp/disable", authHandler.DisableTOTP)
 			r.With(authMW.Handler, platmiddleware.RequireRole("admin")).Post("/register", authHandler.Register)
 		})
 

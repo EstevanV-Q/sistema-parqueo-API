@@ -2,27 +2,27 @@ package devices
 
 // Device representa un dispositivo de hardware (barrera, LPR, RFID, impresora).
 type Device struct {
-	ID            string
-	SiteID        string
-	Name          string
-	Type          string
-	APIKeyHash    string `json:"-"`
-	IsActive      bool
-	LastHeartbeat *string
-	CreatedAt     string
+	ID            string  `json:"id"`
+	SiteID        string  `json:"site_id"`
+	Name          string  `json:"name"`
+	Type          string  `json:"type"`
+	APIKeyHash    string  `json:"-"`
+	IsActive      bool    `json:"is_active"`
+	LastHeartbeat *string `json:"last_heartbeat,omitempty"`
+	CreatedAt     string  `json:"created_at,omitempty"`
 }
 
 // DeviceEvent representa un evento recibido de un dispositivo.
 type DeviceEvent struct {
-	ID              string
-	DeviceID        string
-	EventID         string
-	EventType       string
-	PlateNormalized *string
-	Command         *string
-	Decision        string
-	Reason          *string
-	CreatedAt       string
+	ID              string  `json:"id"`
+	DeviceID        string  `json:"device_id"`
+	EventID         string  `json:"event_id"`
+	EventType       string  `json:"event_type"`
+	PlateNormalized *string `json:"plate_normalized,omitempty"`
+	Command         *string `json:"command,omitempty"`
+	Decision        string  `json:"decision"`
+	Reason          *string `json:"reason,omitempty"`
+	CreatedAt       string  `json:"created_at,omitempty"`
 }
 
 // Tipos de dispositivo.

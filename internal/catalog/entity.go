@@ -1,42 +1,42 @@
 package catalog
 
 type Site struct {
-	ID            string
-	Name          string
-	Code          string
-	Timezone      string
-	Currency      string
-	CapacityTotal int
-	IsActive      bool
-	CreatedAt     string
-	UpdatedAt     string
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Code          string `json:"code"`
+	Timezone      string `json:"timezone"`
+	Currency      string `json:"currency"`
+	CapacityTotal int    `json:"capacity_total"`
+	IsActive      bool   `json:"is_active"`
+	CreatedAt     string `json:"created_at,omitempty"`
+	UpdatedAt     string `json:"updated_at,omitempty"`
 }
 
 type Zone struct {
-	ID        string
-	SiteID    string
-	Name      string
-	Type      string
-	Capacity  int
-	IsActive  bool
-	CreatedAt string
+	ID        string `json:"id"`
+	SiteID    string `json:"site_id"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Capacity  int    `json:"capacity"`
+	IsActive  bool   `json:"is_active"`
+	CreatedAt string `json:"created_at,omitempty"`
 }
 
 type Space struct {
-	ID        string
-	ZoneID    string
-	Code      string
-	Type      string
-	Status    string
-	IsActive  bool
-	CreatedAt string
-	UpdatedAt string
+	ID        string `json:"id"`
+	ZoneID    string `json:"zone_id"`
+	Code      string `json:"code"`
+	Type      string `json:"type"`
+	Status    string `json:"status"`
+	IsActive  bool   `json:"is_active"`
+	CreatedAt string `json:"created_at,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
 }
 
 type VehicleType struct {
-	ID        string
-	Name      string
-	Code      string
-	IsActive  bool
-	CreatedAt string
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Code      string `json:"code"`
+	IsActive  bool   `json:"is_active"`
+	CreatedAt string `json:"created_at,omitempty"`
 }

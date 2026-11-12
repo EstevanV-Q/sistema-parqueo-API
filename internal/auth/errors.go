@@ -13,4 +13,7 @@ var (
 	ErrInactive           = apperr.New(apperr.ErrForbidden, "usuario inactivo", 403, nil)
 	ErrInvalidCredentials = apperr.New(apperr.ErrUnauthorized, "credenciales inválidas", 401, nil)
 	ErrTokenReuse         = apperr.New(apperr.ErrUnauthorized, "refresh token reutilizado", 401, nil)
+	ErrAccountLocked      = apperr.New(apperr.ErrAccountLocked, "cuenta bloqueada temporalmente", 423, nil)
+	ErrTOTPRequired       = apperr.New(apperr.ErrTOTPRequired, "se requiere código TOTP", 401, nil)
+	ErrTOTPInvalid        = apperr.New(apperr.ErrTOTPInvalid, "código TOTP inválido", 401, nil)
 )

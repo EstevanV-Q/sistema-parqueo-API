@@ -4,18 +4,18 @@ import "time"
 
 // Payment representa un pago realizado.
 type Payment struct {
-	ID             string
-	TicketID       *string
-	SubscriptionID *string
-	AmountCents    int64
-	Currency       string
-	Method         string
-	Status         string
-	Reference      *string
-	CashierUserID  *string
-	IdempotencyKey *string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID             string    `json:"id"`
+	TicketID       *string   `json:"ticket_id,omitempty"`
+	SubscriptionID *string   `json:"subscription_id,omitempty"`
+	AmountCents    int64     `json:"amount_cents"`
+	Currency       string    `json:"currency"`
+	Method         string    `json:"method"`
+	Status         string    `json:"status"`
+	Reference      *string   `json:"reference,omitempty"`
+	CashierUserID  *string   `json:"cashier_user_id,omitempty"`
+	IdempotencyKey *string   `json:"idempotency_key,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // Estados de pago.
@@ -37,9 +37,9 @@ const (
 
 // CajaDiaria representa el resumen de caja de un día.
 type CajaDiaria struct {
-	SiteID     string
-	Date       string
-	TotalCents int64
-	Count      int
-	ByMethod   map[string]int64
+	SiteID     string           `json:"site_id"`
+	Date       string           `json:"date"`
+	TotalCents int64            `json:"total_cents"`
+	Count      int              `json:"count"`
+	ByMethod   map[string]int64 `json:"by_method"`
 }

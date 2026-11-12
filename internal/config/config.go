@@ -51,8 +51,10 @@ type Config struct {
 	AllowSeed bool
 
 	// Seguridad JWT
-	JWTSecret   string
-	JWTIssuer   string
+	JWTSecret        string
+	JWTAccessSecret  string
+	JWTRefreshSecret string
+	JWTIssuer        string
 	JWTAudience string
 	JWTAccess   time.Duration
 	JWTRefresh  time.Duration
@@ -117,12 +119,23 @@ func Load() (*Config, error) {
 	env := strings.ToLower(strings.TrimSpace(getEnv("ENV", "development")))
 	jwtSecret := getEnv("JWT_SECRET", "")
 	tokenPepper := getEnv("TOKEN_PEPPER", "")
+	jwtAccessSecret := getEnv("JWT_ACCESS_SECRET", jwtSecret)
+	jwtRefreshSecret := getEnv("JWT_REFRESH_SECRET", jwtSecret)
 	if env == "production" {
 		if isWeakSecret(jwtSecret) {
 			return nil, fmt.Errorf("JWT_SECRET no cumple requisitos de seguridad en entorno de producción")
 		}
 		if len(tokenPepper) < 32 || isWeakSecret(tokenPepper) {
 			return nil, fmt.Errorf("TOKEN_PEPPER debe tener al menos 32 caracteres y no ser un placeholder en producción")
+		}
+		if len(jwtAccessSecret) < 32 || len(jwtRefreshSecret) < 32 {
+			return nil, fmt.Errorf("JWT_ACCESS_SECRET y JWT_REFRESH_SECRET deben tener al menos 32 caracteres en producción")
+		}
+		if isWeakSecret(jwtAccessSecret) || isWeakSecret(jwtRefreshSecret) {
+			return nil, fmt.Errorf("JWT_ACCESS_SECRET y JWT_REFRESH_SECRET no deben ser placeholders")
+		}
+		if jwtAccessSecret == jwtRefreshSecret {
+			return nil, fmt.Errorf("JWT_ACCESS_SECRET y JWT_REFRESH_SECRET deben ser distintos")
 		}
 	}
 
@@ -164,6 +177,8 @@ func Load() (*Config, error) {
 		AllowSeed:         getEnvBool("ALLOW_SEED", false),
 
 		JWTSecret:          jwtSecret,
+		JWTAccessSecret:    jwtAccessSecret,
+		JWTRefreshSecret:   jwtRefreshSecret,
 		JWTIssuer:          getEnv("JWT_ISSUER", "parking-backend"),
 		JWTAudience:        getEnv("JWT_AUDIENCE", "parking-api"),
 		JWTAccess:          getEnvDuration("JWT_ACCESS", "15m"),

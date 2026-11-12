@@ -4,16 +4,16 @@ import "time"
 
 // Subscription representa una suscripción/abono de un vehículo.
 type Subscription struct {
-	ID         string
-	CustomerID string
-	VehicleID  string
-	SiteID     string
-	PlanName   string
-	PriceCents int64
-	StartsAt   time.Time
-	ExpiresAt  time.Time
-	Status     string
-	CreatedAt  time.Time
+	ID         string    `json:"id"`
+	CustomerID string    `json:"customer_id"`
+	VehicleID  string    `json:"vehicle_id"`
+	SiteID     string    `json:"site_id"`
+	PlanName   string    `json:"plan_name"`
+	PriceCents int64     `json:"price_cents"`
+	StartsAt   time.Time `json:"starts_at"`
+	ExpiresAt  time.Time `json:"expires_at"`
+	Status     string    `json:"status"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // Estados de suscripción.

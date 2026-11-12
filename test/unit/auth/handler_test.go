@@ -13,16 +13,18 @@ import (
 )
 
 type fakeRepo struct {
-	users  map[string]*auth.User
-	byID   map[string]*auth.User
-	tokens map[string]*auth.RefreshToken
+	users       map[string]*auth.User
+	byID        map[string]*auth.User
+	tokens      map[string]*auth.RefreshToken
+	resetTokens map[string]*auth.PasswordResetToken
 }
 
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{
-		users:  map[string]*auth.User{},
-		byID:   map[string]*auth.User{},
-		tokens: map[string]*auth.RefreshToken{},
+		users:       map[string]*auth.User{},
+		byID:        map[string]*auth.User{},
+		tokens:      map[string]*auth.RefreshToken{},
+		resetTokens: map[string]*auth.PasswordResetToken{},
 	}
 }
 
@@ -64,6 +66,22 @@ func (f *fakeRepo) UpdateLastLogin(string, time.Time) error { return nil }
 func (f *fakeRepo) UpdatePasswordHash(id, hash string) error {
 	if u, ok := f.byID[id]; ok {
 		u.PasswordHash = hash
+	}
+	return nil
+}
+
+func (f *fakeRepo) UpdateLoginState(id string, attempts int, lockedUntil *time.Time) error {
+	if u, ok := f.byID[id]; ok {
+		u.FailedLoginAttempts = attempts
+		u.LockedUntil = lockedUntil
+	}
+	return nil
+}
+
+func (f *fakeRepo) UpdateTOTP(id, secret string, enabled bool) error {
+	if u, ok := f.byID[id]; ok {
+		u.TOTPSecret = &secret
+		u.TOTPEnabled = enabled
 	}
 	return nil
 }
@@ -143,6 +161,52 @@ func (f *fakeRepo) RevokeUserRefreshTokens(userID string) error {
 	return nil
 }
 
+func (f *fakeRepo) ListRefreshTokens(userID string) ([]*auth.RefreshToken, error) {
+	var out []*auth.RefreshToken
+	for _, t := range f.tokens {
+		if t.UserID == userID {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) RevokeRefreshTokenByID(userID, id string) error {
+	now := time.Now()
+	for _, t := range f.tokens {
+		if t.UserID == userID && t.ID == id {
+			t.RevokedAt = &now
+		}
+	}
+	return nil
+}
+
+func (f *fakeRepo) CreatePasswordResetToken(t *auth.PasswordResetToken) error {
+	if t.ID == "" {
+		t.ID = "reset-" + t.TokenHash[:8]
+	}
+	f.resetTokens[t.TokenHash] = t
+	return nil
+}
+
+func (f *fakeRepo) PasswordResetTokenByHash(hash string) (*auth.PasswordResetToken, error) {
+	t, ok := f.resetTokens[hash]
+	if !ok {
+		return nil, auth.ErrNotFound
+	}
+	return t, nil
+}
+
+func (f *fakeRepo) MarkPasswordResetTokenUsed(id string) error {
+	for _, t := range f.resetTokens {
+		if t.ID == id {
+			now := time.Now()
+			t.UsedAt = &now
+		}
+	}
+	return nil
+}
+
 func newHandler() *auth.Handler {
 	cfg := &config.Config{
 		JWTSecret:   "test-secret-with-at-least-32-characters",
@@ -156,7 +220,7 @@ func newHandler() *auth.Handler {
 
 func TestRegisterResponseDoesNotExposePasswordHash(t *testing.T) {
 	h := newHandler()
-	body := `{"username":"admin","email":"admin@test.com","password":"Admin123!","role":"admin"}`
+	body := `{"username":"admin","email":"admin@test.com","password":"Admin123!Strong","role":"admin"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -189,12 +253,12 @@ func TestRegisterResponseDoesNotExposePasswordHash(t *testing.T) {
 
 func TestRegisterDuplicateEmailReturnsConflict(t *testing.T) {
 	h := newHandler()
-	first := `{"username":"admin","email":"admin@test.com","password":"Admin123!","role":"admin"}`
+	first := `{"username":"admin","email":"admin@test.com","password":"Admin123!Strong","role":"admin"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(first))
 	req.Header.Set("Content-Type", "application/json")
 	h.Register(httptest.NewRecorder(), req)
 
-	second := `{"username":"otro","email":"ADMIN@test.com","password":"Admin123!","role":"admin"}`
+	second := `{"username":"otro","email":"ADMIN@test.com","password":"Admin123!Strong","role":"admin"}`
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(second))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()

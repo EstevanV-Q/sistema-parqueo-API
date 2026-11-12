@@ -58,11 +58,70 @@ func OpenSQLite(path string) (*sql.DB, error) {
 		_ = database.Close()
 		return nil, fmt.Errorf("migrar refresh_tokens SQLite: %w", err)
 	}
+	if err := ensureAuthColumns(database); err != nil {
+		_ = database.Close()
+		return nil, fmt.Errorf("migrar auth SQLite: %w", err)
+	}
 	if err := ensureSQLiteFilePermissions(absolute); err != nil {
 		_ = database.Close()
 		return nil, fmt.Errorf("asegurar permisos SQLite: %w", err)
 	}
 	return database, nil
+}
+
+func ensureAuthColumns(database *sql.DB) error {
+	rows, err := database.Query(`PRAGMA table_info(users)`)
+	if err != nil {
+		return err
+	}
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull, pk int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		columns[name] = true
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	additions := []struct {
+		name string
+		ddl  string
+	}{
+		{"totp_secret", `ALTER TABLE users ADD COLUMN totp_secret TEXT`},
+		{"totp_enabled", `ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0`},
+		{"failed_login_attempts", `ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER NOT NULL DEFAULT 0`},
+		{"locked_until", `ALTER TABLE users ADD COLUMN locked_until TIMESTAMP`},
+	}
+	for _, add := range additions {
+		if !columns[add.name] {
+			if _, err := database.Exec(add.ddl); err != nil {
+				return err
+			}
+		}
+	}
+	_, err = database.Exec(`CREATE TABLE IF NOT EXISTS password_reset_tokens (
+		id BLOB PRIMARY KEY,
+		user_id BLOB NOT NULL,
+		token_hash TEXT NOT NULL UNIQUE,
+		expires_at TIMESTAMP NOT NULL,
+		used_at TIMESTAMP NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	)`)
+	if err != nil {
+		return err
+	}
+	if _, err := database.Exec(`CREATE INDEX IF NOT EXISTS idx_password_reset_user ON password_reset_tokens(user_id)`); err != nil {
+		return err
+	}
+	_, err = database.Exec(`CREATE INDEX IF NOT EXISTS idx_password_reset_expires ON password_reset_tokens(expires_at)`)
+	return err
 }
 
 func ensureSQLiteFilePermissions(path string) error {

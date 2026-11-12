@@ -107,6 +107,9 @@ const (
 	ErrDeviceUnauthorized = "DEVICE_UNAUTHORIZED"
 	ErrIdempotencyKey     = "IDEMPOTENCY_KEY_CONFLICT"
 	ErrTooManyRequests    = "TOO_MANY_REQUESTS"
+	ErrAccountLocked      = "ACCOUNT_LOCKED"
+	ErrTOTPRequired       = "TOTP_REQUIRED"
+	ErrTOTPInvalid        = "TOTP_INVALID"
 	ErrConflict           = "CONFLICT"
 )
 

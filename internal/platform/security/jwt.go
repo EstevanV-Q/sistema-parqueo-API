@@ -39,6 +39,7 @@ func nowFunc(now []clock.NowFunc) clock.NowFunc {
 
 func sign(secret string, claims Claims) (string, time.Time, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	token.Header["kid"] = "v1"
 	signed, err := token.SignedString([]byte(secret))
 	if err != nil {
 		return "", time.Time{}, err

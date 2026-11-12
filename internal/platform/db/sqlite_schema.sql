@@ -11,9 +11,25 @@ CREATE TABLE IF NOT EXISTS users (
     site_id BLOB NULL,
     active INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_login TIMESTAMP NULL
+    last_login TIMESTAMP NULL,
+    totp_secret TEXT NULL,
+    totp_enabled INTEGER NOT NULL DEFAULT 0,
+    failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+    locked_until TIMESTAMP NULL
 );
 CREATE INDEX IF NOT EXISTS idx_users_site ON users(site_id);
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id BLOB PRIMARY KEY,
+    user_id BLOB NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TIMESTAMP NOT NULL,
+    used_at TIMESTAMP NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_password_reset_user ON password_reset_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_password_reset_expires ON password_reset_tokens(expires_at);
 
 CREATE TABLE IF NOT EXISTS refresh_tokens (
     id BLOB PRIMARY KEY,

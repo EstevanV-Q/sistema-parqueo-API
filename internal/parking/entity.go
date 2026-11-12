@@ -4,24 +4,24 @@ import "time"
 
 // Ticket representa un registro de entrada/salida de un vehículo.
 type Ticket struct {
-	ID              string
-	SiteID          string
-	ZoneID          *string
-	SpaceID         *string
-	VehicleID       *string
-	SubscriptionID  *string
-	PlateNormalized string
-	PlateRaw        string
-	TypeID          string
-	RatePlanID      *string
-	EntryAt         time.Time
-	ExitAt          *time.Time
-	Status          string
-	TotalCents      int64
-	PaidCents       int64
-	IsLost          bool
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID              string     `json:"id"`
+	SiteID          string     `json:"site_id"`
+	ZoneID          *string    `json:"zone_id,omitempty"`
+	SpaceID         *string    `json:"space_id,omitempty"`
+	VehicleID       *string    `json:"vehicle_id,omitempty"`
+	SubscriptionID  *string    `json:"subscription_id,omitempty"`
+	PlateNormalized string     `json:"plate_normalized"`
+	PlateRaw        string     `json:"plate_raw"`
+	TypeID          string     `json:"type_id"`
+	RatePlanID      *string    `json:"rate_plan_id,omitempty"`
+	EntryAt         time.Time  `json:"entry_at"`
+	ExitAt          *time.Time `json:"exit_at,omitempty"`
+	Status          string     `json:"status"`
+	TotalCents      int64      `json:"total_cents"`
+	PaidCents       int64      `json:"paid_cents"`
+	IsLost          bool       `json:"is_lost"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 // Estados válidos de un ticket.
