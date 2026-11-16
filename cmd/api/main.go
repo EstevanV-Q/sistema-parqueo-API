@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	_ "time/tzdata" // zonas horarias embebidas
 
 	"parking-backend/internal/app"
 	"parking-backend/internal/config"

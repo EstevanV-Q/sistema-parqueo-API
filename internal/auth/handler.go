@@ -174,29 +174,3 @@ func (h *Handler) MeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	httpserver.JSON(w, http.StatusOK, toUserResp(u))
 }
-
-// WSTicketHandler emite un token efímero para abrir el WebSocket sin exponer
-// el access token de larga vida en la URL.
-func (h *Handler) WSTicketHandler(w http.ResponseWriter, r *http.Request) {
-	uid, _ := ctx.UserIDFromCtx(r.Context())
-	username, _ := ctx.UsernameFromCtx(r.Context())
-	role, _ := ctx.RoleFromCtx(r.Context())
-	siteID, hasSite := ctx.SiteIDFromCtx(r.Context())
-	if uid == "" || role == "" {
-		httpserver.Error(w, apperr.New(apperr.ErrUnauthorized, "no autenticado", http.StatusUnauthorized, nil))
-		return
-	}
-	var sitePtr *string
-	if hasSite && siteID != "" {
-		sitePtr = &siteID
-	}
-	token, expiresAt, err := h.svc.WSTicket(uid, username, role, sitePtr)
-	if err != nil {
-		httpserver.Error(w, err)
-		return
-	}
-	httpserver.JSON(w, http.StatusOK, map[string]any{
-		"ticket":     token,
-		"expires_at": expiresAt.UTC().Format("2006-01-02T15:04:05Z"),
-	})
-}

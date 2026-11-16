@@ -19,9 +19,8 @@ func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
 }
 
-// Record guarda una entrada tomando actor, IP y User-Agent del contexto.
-// Si el registro falla, devuelve el error para que el llamante decida si lo
-// ignora (la auditoría nunca debe tumbar la operación de negocio principal).
+// Record guarda una entrada con actor, IP y User-Agent del contexto.
+// El llamante decide si ignora el error; la auditoría no debe tumbar la operación.
 func (s *Service) Record(ctx context.Context, action, entityType, entityID string, oldValues, newValues map[string]any) error {
 	if action == "" || entityType == "" {
 		return apperr.New(apperr.ErrInvalidInput, "acción y tipo de entidad son requeridos", http.StatusBadRequest, nil)

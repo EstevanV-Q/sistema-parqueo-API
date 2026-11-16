@@ -210,18 +210,6 @@ func testPlan(id string) *RatePlan {
 	}
 }
 
-type fakeVehicleTypes struct {
-	id  string
-	err error
-}
-
-func (f fakeVehicleTypes) VehicleTypeIDByCode(code string) (string, error) {
-	if f.err != nil {
-		return "", f.err
-	}
-	return f.id, nil
-}
-
 type fakeSpaces struct {
 	statuses map[string]string
 }
@@ -249,39 +237,27 @@ func (f *fakeSubscriptions) ValidateByPlate(plateNormalized, siteID string, now 
 	return &Subscription{ID: "sub-1", VehicleID: "veh-1", SiteID: siteID, Status: SubActive}, nil
 }
 
-type fakePublisher struct {
-	events []string
-}
-
-func (f *fakePublisher) Publish(siteID, event string, payload map[string]any) {
-	f.events = append(f.events, event)
-}
-
 // ---------- Helpers ----------
 
 var fixedNow = time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 
-func newTestService() (*Service, *fakeRepo, *fakeSpaces, *fakePublisher) {
+func newTestService() (*Service, *fakeRepo, *fakeSpaces) {
 	repo := newFakeRepo()
 	spaces := &fakeSpaces{statuses: map[string]string{}}
-	publisher := &fakePublisher{}
 
 	svc := NewService(repo).
 		WithRatePlanReader(fakeRatePlans{}).
 		WithSpaceUpdater(spaces).
-		WithSubscriptionChecker(&fakeSubscriptions{}).
-		WithVehicleTypeResolver(fakeVehicleTypes{id: "type-1"}).
-		WithDefaultVehicleType("car").
-		WithEventPublisher(publisher)
+		WithSubscriptionChecker(&fakeSubscriptions{})
 	svc.WithClock(func() time.Time { return fixedNow })
 
-	return svc, repo, spaces, publisher
+	return svc, repo, spaces
 }
 
 // ---------- Tests ----------
 
 func TestCreateTicket_UsesDefaultPlanAndOccupiesSpace(t *testing.T) {
-	svc, _, spaces, publisher := newTestService()
+	svc, _, spaces := newTestService()
 
 	ticket, err := svc.CreateTicket("site-1", "zone-1", "space-1", "veh-1", "ABC123", "ABC-123", "car", "")
 	if err != nil {
@@ -296,13 +272,10 @@ func TestCreateTicket_UsesDefaultPlanAndOccupiesSpace(t *testing.T) {
 	if spaces.statuses["space-1"] != "occupied" {
 		t.Fatalf("estado del espacio = %q, quiere occupied", spaces.statuses["space-1"])
 	}
-	if len(publisher.events) != 1 || publisher.events[0] != "ticket.entered" {
-		t.Fatalf("eventos publicados = %v", publisher.events)
-	}
 }
 
 func TestCreateTicket_RejectsDuplicatePlate(t *testing.T) {
-	svc, _, _, _ := newTestService()
+	svc, _, _ := newTestService()
 
 	if _, err := svc.CreateTicket("site-1", "zone-1", "space-1", "", "ABC123", "ABC-123", "car", ""); err != nil {
 		t.Fatalf("primer ingreso: %v", err)
@@ -314,7 +287,7 @@ func TestCreateTicket_RejectsDuplicatePlate(t *testing.T) {
 }
 
 func TestCreateTicket_RejectsOccupiedSpace(t *testing.T) {
-	svc, _, _, _ := newTestService()
+	svc, _, _ := newTestService()
 
 	if _, err := svc.CreateTicket("site-1", "zone-1", "space-1", "", "ABC123", "ABC-123", "car", ""); err != nil {
 		t.Fatalf("primer ingreso: %v", err)
@@ -326,7 +299,7 @@ func TestCreateTicket_RejectsOccupiedSpace(t *testing.T) {
 }
 
 func TestQuoteAndSettle(t *testing.T) {
-	svc, repo, spaces, publisher := newTestService()
+	svc, repo, spaces := newTestService()
 
 	ticket, err := svc.CreateTicket("site-1", "zone-1", "space-1", "veh-1", "ABC123", "ABC-123", "car", "")
 	if err != nil {
@@ -367,13 +340,10 @@ func TestQuoteAndSettle(t *testing.T) {
 	if last.ActorUserID == nil || *last.ActorUserID != "user-1" {
 		t.Fatalf("actor del evento = %v, quiere user-1", last.ActorUserID)
 	}
-	if len(publisher.events) != 2 || publisher.events[1] != "ticket.exited" {
-		t.Fatalf("eventos = %v", publisher.events)
-	}
 }
 
 func TestSettle_RejectsUnderpayment(t *testing.T) {
-	svc, repo, _, _ := newTestService()
+	svc, repo, _ := newTestService()
 
 	ticket, _ := svc.CreateTicket("site-1", "zone-1", "space-1", "", "ABC123", "ABC-123", "car", "")
 	repo.tickets[ticket.ID].EntryAt = fixedNow.Add(-2 * time.Hour)
@@ -385,7 +355,7 @@ func TestSettle_RejectsUnderpayment(t *testing.T) {
 }
 
 func TestSettle_DoesNotFallbackWhenAtomicTransactionFails(t *testing.T) {
-	svc, repo, spaces, _ := newTestService()
+	svc, repo, spaces := newTestService()
 
 	ticket, _ := svc.CreateTicket("site-1", "zone-1", "space-1", "", "ABC123", "ABC-123", "car", "")
 	repo.tickets[ticket.ID].EntryAt = fixedNow.Add(-2 * time.Hour)
@@ -407,7 +377,7 @@ func TestSettle_DoesNotFallbackWhenAtomicTransactionFails(t *testing.T) {
 }
 
 func TestCancel_IsAtomicAndRecordsActor(t *testing.T) {
-	svc, repo, spaces, publisher := newTestService()
+	svc, repo, spaces := newTestService()
 
 	ticket, _ := svc.CreateTicket("site-1", "zone-1", "space-1", "", "ABC123", "ABC-123", "car", "")
 	cancelled, err := svc.Cancel(ticket.ID, "user-1")
@@ -431,44 +401,10 @@ func TestCancel_IsAtomicAndRecordsActor(t *testing.T) {
 	if last.ActorUserID == nil || *last.ActorUserID != "user-1" {
 		t.Fatalf("actor = %v, quiere user-1", last.ActorUserID)
 	}
-	if len(publisher.events) != 2 || publisher.events[1] != "ticket.cancelled" {
-		t.Fatalf("eventos publicados = %v", publisher.events)
-	}
-}
-
-func TestAutoEnterUsesResolvedVehicleType(t *testing.T) {
-	svc, repo, _, _ := newTestService()
-
-	ticketID, err := svc.AutoEnter("site-1", "ABC123")
-	if err != nil {
-		t.Fatalf("AutoEnter: %v", err)
-	}
-	ticket, err := repo.ByID(ticketID)
-	if err != nil {
-		t.Fatalf("ByID: %v", err)
-	}
-	if ticket.TypeID != "type-1" {
-		t.Fatalf("type_id = %q, quiere type-1", ticket.TypeID)
-	}
-}
-
-func TestAutoEnterFailsClosedWhenVehicleTypeCannotBeResolved(t *testing.T) {
-	repo := newFakeRepo()
-	svc := NewService(repo).
-		WithVehicleTypeResolver(fakeVehicleTypes{err: apperr.New(apperr.ErrNotFound, "tipo no encontrado", 404, nil)}).
-		WithDefaultVehicleType("car")
-	svc.WithClock(func() time.Time { return fixedNow })
-
-	if _, err := svc.AutoEnter("site-1", "ABC123"); err == nil {
-		t.Fatal("AutoEnter debe fallar si no puede resolver el tipo de vehículo")
-	}
-	if len(repo.tickets) != 0 {
-		t.Fatalf("no debe crear tickets, hay %d", len(repo.tickets))
-	}
 }
 
 func TestQuote_SubscriptionIsFree(t *testing.T) {
-	svc, repo, _, _ := newTestService()
+	svc, repo, _ := newTestService()
 
 	ticket, _ := svc.CreateTicket("site-1", "zone-1", "space-1", "veh-1", "ABC123", "ABC-123", "car", "")
 	plan := "subscription"
@@ -483,57 +419,42 @@ func TestQuote_SubscriptionIsFree(t *testing.T) {
 	}
 }
 
-func TestAuthorizeEntryAndExit(t *testing.T) {
-	svc, repo, _, _ := newTestService()
+type fakeAllocator struct {
+	candidates []SpaceCandidate
+}
 
-	allow, _, err := svc.AuthorizeEntry("site-1", "ABC123")
-	if err != nil || !allow {
-		t.Fatalf("entrada sin ticket debe permitirse: allow=%v err=%v", allow, err)
-	}
+func (f fakeAllocator) FreeSpaces(siteID, vehicleTypeID string) ([]SpaceCandidate, error) {
+	return f.candidates, nil
+}
 
-	if _, err := svc.CreateTicket("site-1", "zone-1", "space-1", "", "ABC123", "ABC-123", "car", ""); err != nil {
-		t.Fatalf("CreateTicket: %v", err)
-	}
+func TestCreateTicket_AssignsFirstFreeSpace(t *testing.T) {
+	svc, _, spaces := newTestService()
+	svc.WithSpaceAllocator(fakeAllocator{candidates: []SpaceCandidate{
+		{SpaceID: "space-1", ZoneID: "zone-1"},
+		{SpaceID: "space-2", ZoneID: "zone-1"},
+	}})
 
-	allow, _, _ = svc.AuthorizeEntry("site-1", "ABC123")
-	if allow {
-		t.Fatal("una segunda entrada con la misma placa debe denegarse")
-	}
-
-	allow, _, _ = svc.AuthorizeExit("site-1", "ABC123")
-	if !allow {
-		t.Fatal("la salida con ticket en periodo de gracia debe permitirse")
-	}
-
-	// Simular que el vehículo ingresó hace 2 horas sin pagar
-	tkt, err := svc.CreateTicket("site-1", "zone-1", "space-1", "", "DEF456", "DEF-456", "car", "")
+	first, err := svc.CreateTicket("site-1", "", "", "", "AAA111", "AAA111", "car", "")
 	if err != nil {
-		t.Fatalf("CreateTicket: %v", err)
+		t.Fatalf("primer ingreso: %v", err)
 	}
-	repo.tickets[tkt.ID].EntryAt = fixedNow.Add(-2 * time.Hour)
-
-	allow, reason, _ := svc.AuthorizeExit("site-1", "DEF456")
-	if allow {
-		t.Fatal("la salida con ticket impago después de gracia debe denegarse")
+	if first.SpaceID == nil || *first.SpaceID != "space-1" {
+		t.Fatalf("espacio asignado = %v, quiere space-1", first.SpaceID)
 	}
-	if reason == "" {
-		t.Fatal("se esperaba motivo de denegación")
+	// El asignador sigue reportando space-1 libre: el servicio debe saltarlo
+	// porque ya tiene un ticket abierto.
+	second, err := svc.CreateTicket("site-1", "", "", "", "BBB222", "BBB222", "car", "")
+	if err != nil {
+		t.Fatalf("segundo ingreso: %v", err)
 	}
-
-	// Settle del ticket
-	_, quote, _ := svc.Quote(tkt.ID)
-	if _, err := svc.Settle(tkt.ID, int64(quote.Amount), "cash", "user-1"); err != nil {
-		t.Fatalf("Settle: %v", err)
+	if second.SpaceID == nil || *second.SpaceID != "space-2" {
+		t.Fatalf("espacio asignado = %v, quiere space-2", second.SpaceID)
 	}
-
-	// Ahora con ticket pagado debe permitirse la salida
-	allow, _, _ = svc.AuthorizeExit("site-1", "DEF456")
-	if !allow {
-		t.Fatal("la salida con ticket pagado debe permitirse")
+	if spaces.statuses["space-2"] != "occupied" {
+		t.Fatalf("estado de space-2 = %q, quiere occupied", spaces.statuses["space-2"])
 	}
-
-	allow, _, _ = svc.AuthorizeExit("site-1", "XYZ987")
-	if allow {
-		t.Fatal("la salida sin ticket abierto debe denegarse")
+	_, err = svc.CreateTicket("site-1", "", "", "", "CCC333", "CCC333", "car", "")
+	if !apperr.Is(err, apperr.ErrConflict) {
+		t.Fatalf("err = %v, quiere CONFLICT por parqueo lleno", err)
 	}
 }

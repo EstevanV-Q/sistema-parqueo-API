@@ -18,8 +18,8 @@ http:
       {
         "name": "Sede Bruno Actualizada",
         "code": "{{testSiteCode}}",
-        "timezone": "America/Bogota",
-        "currency": "COP",
+        "timezone": "America/Costa_Rica",
+        "currency": "CRC",
         "capacity_total": 30,
         "is_active": true
       }

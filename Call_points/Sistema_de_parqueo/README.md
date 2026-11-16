@@ -6,7 +6,7 @@ Colección OpenCollection YAML para probar todos los endpoints del backend (`par
 
 1. Abrir Bruno → **Open Collection** → seleccionar la carpeta `Sistema_de_parqueo`.
 2. Seleccionar el environment **Local** (arriba a la derecha).
-3. Ejecutar los folders en orden: `00_health` → `01_auth` → `02_catalog` → ... → `12_realtime`.
+3. Ejecutar los folders en orden: `00_health` → `01_auth` → `02_catalog` → ... → `11_audit`.
 
 > El primer request que debes ejecutar es `01_auth/01_login_admin.yml`. Los demás requests protegidos usan `{{accessToken}}`, que se captura automáticamente al hacer login.
 
@@ -15,9 +15,6 @@ Colección OpenCollection YAML para probar todos los endpoints del backend (`par
 Los usuarios son `admin`, `operador` y `auditor`. Las contraseñas se definen con
 `SEED_ADMIN_PASSWORD`, `SEED_OPERATOR_PASSWORD` y `SEED_AUDITOR_PASSWORD` antes
 de ejecutar el seed.
-
-El dispositivo demo usa la clave definida en `SEED_DEVICE_API_KEY`; en Bruno se
-captura en la variable `deviceApiKey`.
 
 ## Variables automáticas
 
@@ -38,7 +35,6 @@ Los scripts `after-response` capturan y encadenan los IDs necesarios:
 | `ticketId` | `06_tickets/01_crear_ticket.yml` |
 | `paymentId` | `07_payments/01_crear_pago.yml` |
 | `subscriptionId` | `08_subscriptions/01_crear_abono.yml` |
-| `deviceId` / `deviceApiKey` | `09_devices/01_registrar_dispositivo.yml` |
 | `today` | `10_reports/03_caja_diaria.yml` |
 
 Si ejecutas un request aislado y una variable está vacía, ejecuta primero el listado/creación correspondiente.
@@ -50,22 +46,19 @@ Si ejecutas un request aislado y una variable está vacía, ejecuta primero el l
 3. **02_catalog**: CRUD de sedes, zonas, espacios y tipos de vehículo.
 4. **03_vehicles** y **04_customers**: listados y creación.
 5. **05_rate-plans**: listado, creación, consulta y desactivación.
-6. **06_tickets**: entrada, consulta, eventos, cotización, liquidación y anulación.
+6. **06_tickets**: entrada (si no se envía `space_id`, se asigna uno libre), consulta, eventos, cotización, liquidación y anulación.
 7. **07_payments**: registro, consulta, reembolso y listado.
 8. **08_subscriptions**: creación, consulta, validación, listado y cancelación.
-9. **09_devices**: registro, listado y evento con `X-Device-Key`.
-10. **10_reports** y **11_audit**.
-11. **12_realtime**: WebSocket de ocupación (conectar y esperar mensajes).
+9. **10_reports** y **11_audit**.
 
 ## Notas
 
 - Las pruebas CRUD crean registros con prefijos `BRUNO-`, `TST`, `BT`, `Abono Bruno` y luego los desactivan/cancelan. No modifican los datos demo del seed (`PLAZA-01`, `XYZ987`, etc.).
 - `06_tickets/07_cancelar_ticket.yml` devuelve `400` si el ticket ya fue liquidado (el ticket no está abierto). Para probar la anulación, crea un ticket nuevo y ejecuta solo ese request.
 - `01_auth/07_logout.yml` revoca el refresh token; si lo ejecutas, vuelve a hacer login para continuar.
-- El WebSocket `12_realtime/01_ocupacion_ws.yml` no requiere JWT; solo usa `site_id`.
 - Los parámetros de query van incluidos en la URL para que funcionen igual en Bruno GUI y en Bruno CLI.
 - `test live/Test_server_online.yml` se conserva como ejemplo original de prueba de conectividad.
-- Si el puerto `8080` está ocupado por otro servicio, ejecuta la API en otro puerto y cambia `baseUrl`/`wsUrl` en `environments/local.yml`.
+- Si el puerto `8080` está ocupado por otro servicio, ejecuta la API en otro puerto y cambia `baseUrl` en `environments/local.yml`.
 
 ## Comando rápido con Bruno CLI
 
@@ -73,4 +66,4 @@ Si ejecutas un request aislado y una variable está vacía, ejecuta primero el l
 bru run "Call_points/Sistema_de_parqueo" --env Local
 ```
 
-Si la API está en otro host/puerto, cambia `baseUrl` y `wsUrl` en `environments/local.yml`.
+Si la API está en otro host/puerto, cambia `baseUrl` en `environments/local.yml`.

@@ -15,9 +15,8 @@ import (
 //go:embed sqlite_schema.sql
 var sqliteSchema string
 
-// OpenSQLite abre (o crea) la base local del API de borde y aplica el esquema.
-// Usa WAL para permitir lecturas concurrentes y _txlock=immediate para que las
-// transacciones de escritura serialicen a los operadores de una misma sede.
+// OpenSQLite abre (o crea) el archivo SQLite y aplica el esquema.
+// WAL permite leer mientras se escribe; _txlock=immediate serializa escrituras.
 func OpenSQLite(path string) (*sql.DB, error) {
 	if path == "" {
 		return nil, fmt.Errorf("SQLITE_PATH es requerido")
@@ -53,8 +52,7 @@ func OpenSQLite(path string) (*sql.DB, error) {
 	return database, nil
 }
 
-// Open abre la base según el driver configurado. MySQL sigue siendo el modo
-// central; SQLite es el modo de borde.
+// Open abre la base según DB_DRIVER: MySQL (servidor) o SQLite (archivo local).
 func Open(cfg *config.Config) (*sql.DB, error) {
 	if cfg.IsSQLite() {
 		return OpenSQLite(cfg.SQLitePath)

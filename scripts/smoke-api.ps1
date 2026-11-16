@@ -2,11 +2,11 @@
 #
 # Uso (PowerShell 5.1+ en Windows, requiere curl.exe):
 #   $env:SMOKE_ADMIN_PASSWORD = '<password del usuario admin>'
-#   # opcional: $env:SMOKE_BASE = 'http://127.0.0.1:8082'  (API de borde SQLite)
+#   # opcional: $env:SMOKE_BASE = 'http://127.0.0.1:8082'
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\smoke-api.ps1
 #
 # El script crea una sede, zona, espacio, tipo de vehículo, cliente, vehículo,
-# tarifa, tickets, pagos, abono y dispositivo de prueba. Está pensado para
+# tarifa, tickets, pagos y abono de prueba. Está pensado para
 # entornos de desarrollo; no ejecutarlo contra producción.
 $ErrorActionPreference = 'Continue'
 $Base = if ($env:SMOKE_BASE) { $env:SMOKE_BASE } else { 'http://127.0.0.1:8080' }
@@ -22,10 +22,9 @@ $script:Fail = 0
 $script:Failures = @()
 
 function Call {
-    param([string]$Method, [string]$Path, [string]$Body, [string]$Token, [string]$DeviceKey)
+    param([string]$Method, [string]$Path, [string]$Body, [string]$Token)
     $curlArgs = @('-sS', '-o', $Tmp, '-w', '%{http_code}', '-X', $Method, ($Base + $Path))
     if ($Token) { $curlArgs += @('-H', "Authorization: Bearer $Token") }
-    if ($DeviceKey) { $curlArgs += @('-H', "X-Device-Key: $DeviceKey") }
     if ($null -ne $Body -and $Body -ne '') {
         [System.IO.File]::WriteAllText($BodyFile, $Body, (New-Object System.Text.UTF8Encoding($false)))
         $curlArgs += @('-H', 'Content-Type: application/json', '--data-binary', "@$BodyFile")
@@ -104,10 +103,10 @@ $carType = ($vts.Json | Where-Object { $_.code -eq 'car' } | Select-Object -Firs
 if (-not $carType) { $carType = $vts.Json[0] }
 
 $siteCode = "SMK$stamp"
-$r = Call 'POST' '/api/v1/catalog/sites' ("{`"name`":`"Sede Smoke $stamp`",`"code`":`"$siteCode`",`"timezone`":`"America/Bogota`",`"currency`":`"COP`",`"capacity_total`":`20}") $tok
+$r = Call 'POST' '/api/v1/catalog/sites' ("{`"name`":`"Sede Smoke $stamp`",`"code`":`"$siteCode`",`"timezone`":`"America/Costa_Rica`",`"currency`":`"CRC`",`"capacity_total`":`20}") $tok
 Check 'crear sede' $r @(201) | Out-Null
 $newSite = $r.Json.id
-$r = Call 'PUT' "/api/v1/catalog/sites/$newSite" ("{`"name`":`"Sede Smoke Actualizada $stamp`",`"code`":`"$siteCode`",`"timezone`":`"America/Bogota`",`"currency`":`"COP`",`"capacity_total`":`25}") $tok
+$r = Call 'PUT' "/api/v1/catalog/sites/$newSite" ("{`"name`":`"Sede Smoke Actualizada $stamp`",`"code`":`"$siteCode`",`"timezone`":`"America/Costa_Rica`",`"currency`":`"CRC`",`"capacity_total`":`25}") $tok
 Check 'actualizar sede' $r @(200) | Out-Null
 $r = Call 'GET' "/api/v1/catalog/sites/$newSite" '' $tok
 Check 'obtener sede' $r @(200) | Out-Null
@@ -117,7 +116,7 @@ Check 'registrar operador de la sede nueva' $r @(201) | Out-Null
 $opLogin2 = Call 'POST' '/api/v1/auth/login' ("{`"username`":`"$newUser2`",`"password`":`"Smoke-Pass-1234`"}")
 Check 'login operador sede nueva' $opLogin2 @(200) | Out-Null
 $opTok2 = $opLogin2.Json.access_token
-$r = Call 'POST' '/api/v1/catalog/sites' '{"name":"Prohibida","code":"NOPE","timezone":"America/Bogota","currency":"COP"}' $opTok
+$r = Call 'POST' '/api/v1/catalog/sites' '{"name":"Prohibida","code":"NOPE","timezone":"America/Costa_Rica","currency":"CRC"}' $opTok
 Check 'operador no puede crear sede -> 403' $r @(403) | Out-Null
 
 $r = Call 'POST' '/api/v1/catalog/zones' ("{`"site_id`":`"$newSite`",`"name`":`"Zona Smoke`",`"type`":`"car`",`"capacity`":`20}") $tok
@@ -172,7 +171,7 @@ $r = Call 'GET' "/api/v1/vehicles/plate/$plate" '' $tok
 Check 'buscar vehiculo por placa' $r @(200) | Out-Null
 
 # ---------- tarifas ----------
-$r = Call 'POST' '/api/v1/rate-plans' ("{`"site_id`":`"$newSite`",`"name`":`"Tarifa Smoke`",`"currency`":`"COP`",`"grace_minutes`":`10,`"minimum_cents`":1000,`"fraction_minutes`":60,`"cents_per_fraction`":1500,`"daily_cap_cents`":20000,`"lost_ticket_cents`":25000,`"vehicle_type_id`":`"$($carType.id)`"}") $tok
+$r = Call 'POST' '/api/v1/rate-plans' ("{`"site_id`":`"$newSite`",`"name`":`"Tarifa Smoke`",`"currency`":`"CRC`",`"grace_minutes`":`10,`"minimum_cents`":1000,`"fraction_minutes`":60,`"cents_per_fraction`":1500,`"daily_cap_cents`":20000,`"lost_ticket_cents`":25000,`"vehicle_type_id`":`"$($carType.id)`"}") $tok
 Check 'crear tarifa' $r @(201) | Out-Null
 $newPlan = $r.Json.id
 $r = Call 'GET' ("/api/v1/rate-plans?site_id=$newSite") '' $tok
@@ -209,10 +208,10 @@ Check 'cancelar ticket (operador)' $r @(200) | Out-Null
 
 # ---------- pagos ----------
 $idem = "smoke-idem-$stamp"
-$r = Call 'POST' '/api/v1/payments' ("{`"ticket_id`":`"$ticket`",`"amount_cents`":100,`"currency`":`"COP`",`"method`":`"cash`",`"reference`":`"SMOKE`",`"idempotency_key`":`"$idem`"}") $tok
+$r = Call 'POST' '/api/v1/payments' ("{`"ticket_id`":`"$ticket`",`"amount_cents`":100,`"currency`":`"CRC`",`"method`":`"cash`",`"reference`":`"SMOKE`",`"idempotency_key`":`"$idem`"}") $tok
 Check 'crear pago (idempotencia)' $r @(201) | Out-Null
 $payment = $r.Json.id
-$r2 = Call 'POST' '/api/v1/payments' ("{`"ticket_id`":`"$ticket`",`"amount_cents`":100,`"currency`":`"COP`",`"method`":`"cash`",`"reference`":`"SMOKE`",`"idempotency_key`":`"$idem`"}") $tok
+$r2 = Call 'POST' '/api/v1/payments' ("{`"ticket_id`":`"$ticket`",`"amount_cents`":100,`"currency`":`"CRC`",`"method`":`"cash`",`"reference`":`"SMOKE`",`"idempotency_key`":`"$idem`"}") $tok
 Check 'repetir pago idempotente' $r2 @(201) | Out-Null
 Check 'idempotencia devuelve mismo pago' ([pscustomobject]@{ Status = $(if ($r2.Json.id -eq $payment) { 200 } else { 500 }); Content = $r2.Content }) @(200) | Out-Null
 $r = Call 'GET' "/api/v1/payments/$payment" '' $tok
@@ -240,22 +239,6 @@ Check 'cancelar abono' $r @(204) | Out-Null
 $r = Call 'GET' ("/api/v1/subscriptions/validate?vehicle_id=$newVehicle&site_id=$newSite") '' $tok
 Check 'validar abono cancelado -> 404' $r @(404) | Out-Null
 
-# ---------- dispositivos ----------
-$devKey = "smoke-device-key-$stamp"
-$r = Call 'POST' '/api/v1/devices' ("{`"site_id`":`"$newSite`",`"name`":`"Barrera Smoke`",`"type`":`"barrier`",`"api_key`":`"$devKey`"}") $tok
-Check 'registrar dispositivo' $r @(201) | Out-Null
-$r = Call 'GET' ("/api/v1/devices?site_id=$newSite") '' $tok
-Check 'listar dispositivos' $r @(200) | Out-Null
-$eventID = "evt-$stamp"
-$plate3 = "SMY$($stamp.ToString().Substring($stamp.ToString().Length-5))"
-$evtBody = "{`"event_id`":`"$eventID`",`"event_type`":`"entry_detected`",`"plate_normalized`":`"$plate3`"}"
-$r = Call 'POST' '/api/v1/devices/events' $evtBody '' $devKey
-Check 'evento dispositivo entrada' $r @(200) | Out-Null
-$r2 = Call 'POST' '/api/v1/devices/events' $evtBody '' $devKey
-Check 'evento dispositivo idempotente' $r2 @(200) | Out-Null
-$r = Call 'POST' '/api/v1/devices/events' $evtBody '' 'clave-invalida-123456'
-Check 'evento dispositivo clave invalida -> 401' $r @(401) | Out-Null
-
 # ---------- reportes ----------
 $r = Call 'GET' ("/api/v1/reports/occupancy?site_id=$newSite") '' $tok
 Check 'reporte ocupacion' $r @(200) | Out-Null
@@ -272,26 +255,6 @@ $r = Call 'GET' '/api/v1/audit?limit=10' '' $tok
 Check 'listar auditoria' $r @(200) | Out-Null
 $r = Call 'GET' ("/api/v1/audit?site_id=$newSite&limit=10") '' $tok
 Check 'auditoria por sede' $r @(200) | Out-Null
-
-# ---------- realtime ----------
-$ws1 = Call 'POST' '/api/v1/auth/ws-ticket' '' $tok
-Check 'auth ws-ticket' $ws1 @(200) | Out-Null
-$wsTicket = $ws1.Json.ticket
-$wsBase = $Base -replace '^http', 'ws'
-$wsUrl = "$wsBase/api/v1/ws/occupancy?site_id=$newSite&ticket=$wsTicket"
-try {
-    $ws = New-Object System.Net.WebSockets.ClientWebSocket
-    $cts = New-Object System.Threading.CancellationTokenSource
-    $cts.CancelAfter(5000)
-    $ws.ConnectAsync([Uri]$wsUrl, $cts.Token).Wait()
-    $state = $ws.State
-    try { $ws.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, 'bye', [Threading.CancellationToken]::None).Wait() | Out-Null } catch { $ws.Abort() }
-    Check 'websocket ocupacion conecta' ([pscustomobject]@{ Status = $(if ($state -eq 'Open') { 101 } else { 500 }); Content = $state }) @(101) | Out-Null
-} catch {
-    $e = $_.Exception
-    while ($e.InnerException) { $e = $e.InnerException }
-    Check 'websocket ocupacion conecta' ([pscustomobject]@{ Status = 500; Content = "$($e.Message) | url=$wsUrl" }) @(101) | Out-Null
-}
 
 # ---------- logout ----------
 $r = Call 'POST' '/api/v1/auth/logout' ("{`"refresh_token`":`"$refresh2`"}") $tok

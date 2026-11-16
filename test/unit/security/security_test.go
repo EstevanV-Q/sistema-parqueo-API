@@ -141,22 +141,3 @@ func TestAccessTokenRejectsEmptyClaims(t *testing.T) {
 		t.Fatal("un token sin user_id no debe aceptarse")
 	}
 }
-
-func TestWSTicketRoundTrip(t *testing.T) {
-	const issuer = "parking-backend"
-	const audience = "parking-api"
-	ticket, _, err := WSTicket("secret", issuer, audience, "user-1", "user-1", "admin", nil, 30*time.Second)
-	if err != nil {
-		t.Fatalf("WSTicket: %v", err)
-	}
-	claims, err := ParseWSTicket("secret", issuer, audience, ticket)
-	if err != nil {
-		t.Fatalf("ParseWSTicket: %v", err)
-	}
-	if claims.TokenType != TokenTypeWS || claims.UserID != "user-1" {
-		t.Fatalf("claims inesperados: %+v", claims)
-	}
-	if _, err := ParseAccessToken("secret", issuer, audience, ticket); err == nil {
-		t.Fatal("un ws ticket no debe aceptarse como access token")
-	}
-}

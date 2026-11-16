@@ -4,19 +4,17 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"parking-backend/internal/auth"
 	"parking-backend/internal/billing"
 	"parking-backend/internal/catalog"
 	"parking-backend/internal/config"
-	"parking-backend/internal/devices"
-	"parking-backend/internal/edge"
 	"parking-backend/internal/parking"
 	platformdb "parking-backend/internal/platform/db"
-	"parking-backend/internal/platform/ids"
-	"parking-backend/internal/platform/outbox"
 	"parking-backend/internal/rateplans"
-	"parking-backend/internal/subscriptions"
+	"parking-backend/internal/reporting"
+	"parking-backend/internal/seed"
 )
 
 func testConfig() *config.Config {
@@ -37,16 +35,16 @@ func openSQLite(t *testing.T) *sql.DB {
 	return database
 }
 
-func TestSQLiteTicketLifecycleAndOutbox(t *testing.T) {
+func TestSQLiteTicketLifecycle(t *testing.T) {
 	database := openSQLite(t)
 
-	siteRepo := catalog.NewSQLiteSiteRepo(database)
-	zoneRepo := catalog.NewSQLiteZoneRepo(database)
-	spaceRepo := catalog.NewSQLiteSpaceRepo(database)
-	vtRepo := catalog.NewSQLiteVehicleTypeRepo(database)
+	siteRepo := catalog.NewSiteRepo(database)
+	zoneRepo := catalog.NewZoneRepo(database)
+	spaceRepo := catalog.NewSpaceRepo(database)
+	vtRepo := catalog.NewVehicleTypeRepo(database)
 	catalogSvc := catalog.NewService(siteRepo, zoneRepo, spaceRepo, vtRepo)
 
-	site, err := catalogSvc.CreateSite("Sede Edge", "EDGE-01", "America/Bogota", "COP", 10)
+	site, err := catalogSvc.CreateSite("Sede Edge", "EDGE-01", "America/Costa_Rica", "CRC", 10)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -63,22 +61,21 @@ func TestSQLiteTicketLifecycleAndOutbox(t *testing.T) {
 		t.Fatalf("CreateVehicleType: %v", err)
 	}
 
-	rateplansSvc := rateplans.NewService(rateplans.NewSQLiteRepository(database))
-	plan, err := rateplansSvc.Create(site.ID, "Tarifa Edge", "COP", 0, 60, 1000, 1500, 20000, 25000, &vt.ID)
+	rateplansSvc := rateplans.NewService(rateplans.NewRepository(database))
+	plan, err := rateplansSvc.Create(site.ID, "Tarifa Edge", "CRC", 0, 60, 1000, 1500, 20000, 25000, &vt.ID)
 	if err != nil {
 		t.Fatalf("CreateRatePlan: %v", err)
 	}
 
-	authSvc := auth.NewService(auth.NewSQLiteRepository(database), testConfig())
+	authSvc := auth.NewService(auth.NewRepository(database), testConfig())
 	cashier, err := authSvc.Register("edge-cashier", "edge@example.com", "edge-password-123", auth.RoleOperator, &site.ID)
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 
-	parkingSvc := parking.NewService(parking.NewSQLiteRepository(database)).
+	parkingSvc := parking.NewService(parking.NewRepository(database, false)).
 		WithRatePlanReader(rateplansSvc).
-		WithSpaceUpdater(catalogSvc).
-		WithVehicleTypeResolver(catalogSvc)
+		WithSpaceUpdater(catalogSvc)
 
 	ticket, err := parkingSvc.CreateTicket(site.ID, zone.ID, space.ID, "", "EDGE123", "EDGE123", vt.ID, plan.ID)
 	if err != nil {
@@ -88,7 +85,7 @@ func TestSQLiteTicketLifecycleAndOutbox(t *testing.T) {
 		t.Fatalf("status = %s", ticket.Status)
 	}
 
-	stored, err := parking.NewSQLiteRepository(database).ByID(ticket.ID)
+	stored, err := parking.NewRepository(database, false).ByID(ticket.ID)
 	if err != nil {
 		t.Fatalf("ByID: %v", err)
 	}
@@ -104,7 +101,7 @@ func TestSQLiteTicketLifecycleAndOutbox(t *testing.T) {
 		t.Fatalf("settled status = %s", paid.Status)
 	}
 
-	events, err := parking.NewSQLiteRepository(database).Events(ticket.ID)
+	events, err := parking.NewRepository(database, false).Events(ticket.ID)
 	if err != nil {
 		t.Fatalf("Events: %v", err)
 	}
@@ -123,109 +120,33 @@ func TestSQLiteTicketLifecycleAndOutbox(t *testing.T) {
 		t.Fatalf("espacio = %s, quiere free", spaceAfter.Status)
 	}
 
-	pending, err := outbox.NewStore(database).Pending(50)
-	if err != nil {
-		t.Fatalf("outbox Pending: %v", err)
-	}
-	ticketEvents := 0
-	for _, event := range pending {
-		if event.AggregateType == "ticket" {
-			ticketEvents++
-		}
-	}
-	if ticketEvents != 2 {
-		t.Fatalf("eventos de ticket en outbox = %d, quiere 2 (entrada y liquidación)", ticketEvents)
-	}
 }
 
-func TestSQLiteAutoEnterFromDeviceEvent(t *testing.T) {
-	database := openSQLite(t)
-	cfg := testConfig()
-	cfg.DefaultVehicleTypeCode = "car"
-	cfg.SiteTimezone = "America/Bogota"
-	cfg.SeedSiteCode = "EDGE-LPR"
-	cfg.SeedSiteName = "Sede LPR"
-	cfg.SeedAdminPassword = "AdminEdge123!"
-	cfg.SeedOperatorPassword = "OperEdge123!"
-	cfg.SeedAuditorPassword = "AuditEdge123!"
-	cfg.SeedDeviceAPIKey = "edge-device-key-123456"
-	cfg.SeedVehiclePlate = "XYZ987"
-
-	if _, err := edge.Seed(database, cfg); err != nil {
-		t.Fatalf("Seed: %v", err)
-	}
-
-	siteRepo := catalog.NewSQLiteSiteRepo(database)
-	site, err := siteRepo.ByCode(cfg.SeedSiteCode)
-	if err != nil {
-		t.Fatalf("site: %v", err)
-	}
-	catalogSvc := catalog.NewService(
-		siteRepo,
-		catalog.NewSQLiteZoneRepo(database),
-		catalog.NewSQLiteSpaceRepo(database),
-		catalog.NewSQLiteVehicleTypeRepo(database),
-	)
-	rateplansSvc := rateplans.NewService(rateplans.NewSQLiteRepository(database))
-	parkingSvc := parking.NewService(parking.NewSQLiteRepository(database)).
-		WithRatePlanReader(rateplansSvc).
-		WithSpaceUpdater(catalogSvc).
-		WithSubscriptionChecker(subscriptions.NewService(subscriptions.NewSQLiteRepository(database))).
-		WithVehicleTypeResolver(catalogSvc).
-		WithDefaultVehicleType(cfg.DefaultVehicleTypeCode)
-	devicesSvc := devices.NewService(devices.NewSQLiteRepository(database)).
-		WithGate(parkingSvc).
-		WithTicketCreator(parkingSvc)
-
-	device, err := devicesSvc.Authenticate(cfg.SeedDeviceAPIKey)
-	if err != nil {
-		t.Fatalf("Authenticate: %v", err)
-	}
-	event, err := devicesSvc.ProcessEvent(device, ids.UUIDv7String(), "entry_detected", "AUTOEDGE1")
-	if err != nil {
-		t.Fatalf("ProcessEvent: %T %v", err, err)
-	}
-	if event.Decision != devices.DecisionAllow {
-		t.Fatalf("decision = %s", event.Decision)
-	}
-	if device.SiteID != site.ID {
-		t.Fatalf("device site = %s, want %s", device.SiteID, site.ID)
-	}
-	ticket, err := parking.NewSQLiteRepository(database).OpenByPlateSite("AUTOEDGE1", site.ID)
-	if err != nil {
-		t.Fatalf("OpenByPlateSite: %v", err)
-	}
-	if ticket.Status != parking.TicketOpen {
-		t.Fatalf("ticket = %+v", ticket)
-	}
-}
-
-func TestSQLiteCancelWritesOutboxAndEvent(t *testing.T) {
+func TestSQLiteCancelRecordsEvent(t *testing.T) {
 	database := openSQLite(t)
 
-	siteRepo := catalog.NewSQLiteSiteRepo(database)
-	zoneRepo := catalog.NewSQLiteZoneRepo(database)
-	spaceRepo := catalog.NewSQLiteSpaceRepo(database)
-	vtRepo := catalog.NewSQLiteVehicleTypeRepo(database)
+	siteRepo := catalog.NewSiteRepo(database)
+	zoneRepo := catalog.NewZoneRepo(database)
+	spaceRepo := catalog.NewSpaceRepo(database)
+	vtRepo := catalog.NewVehicleTypeRepo(database)
 	catalogSvc := catalog.NewService(siteRepo, zoneRepo, spaceRepo, vtRepo)
 
-	site, _ := catalogSvc.CreateSite("Sede Edge", "EDGE-02", "America/Bogota", "COP", 10)
+	site, _ := catalogSvc.CreateSite("Sede Edge", "EDGE-02", "America/Costa_Rica", "CRC", 10)
 	zone, _ := catalogSvc.CreateZone(site.ID, "Zona", "car", 10)
 	space, _ := catalogSvc.CreateSpace(zone.ID, "E-01", "car")
 	vt, _ := catalogSvc.CreateVehicleType("Carro", "car")
-	rateplansSvc := rateplans.NewService(rateplans.NewSQLiteRepository(database))
-	plan, _ := rateplansSvc.Create(site.ID, "Tarifa", "COP", 0, 60, 1000, 1500, 20000, 25000, &vt.ID)
+	rateplansSvc := rateplans.NewService(rateplans.NewRepository(database))
+	plan, _ := rateplansSvc.Create(site.ID, "Tarifa", "CRC", 0, 60, 1000, 1500, 20000, 25000, &vt.ID)
 
-	authSvc := auth.NewService(auth.NewSQLiteRepository(database), testConfig())
+	authSvc := auth.NewService(auth.NewRepository(database), testConfig())
 	operator, err := authSvc.Register("edge-operator", "operator@example.com", "edge-password-123", auth.RoleOperator, &site.ID)
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 
-	parkingSvc := parking.NewService(parking.NewSQLiteRepository(database)).
+	parkingSvc := parking.NewService(parking.NewRepository(database, false)).
 		WithRatePlanReader(rateplansSvc).
-		WithSpaceUpdater(catalogSvc).
-		WithVehicleTypeResolver(catalogSvc)
+		WithSpaceUpdater(catalogSvc)
 
 	ticket, err := parkingSvc.CreateTicket(site.ID, zone.ID, space.ID, "", "CANCEL1", "CANCEL1", vt.ID, plan.ID)
 	if err != nil {
@@ -235,42 +156,104 @@ func TestSQLiteCancelWritesOutboxAndEvent(t *testing.T) {
 		t.Fatalf("Cancel: %v", err)
 	}
 
-	events, err := parking.NewSQLiteRepository(database).Events(ticket.ID)
+	events, err := parking.NewRepository(database, false).Events(ticket.ID)
 	if err != nil {
 		t.Fatalf("Events: %v", err)
 	}
 	if len(events) != 2 || events[1].EventType != "cancel" {
 		t.Fatalf("eventos = %+v", events)
 	}
-	pending, err := outbox.NewStore(database).Pending(50)
-	if err != nil {
-		t.Fatalf("outbox Pending: %v", err)
-	}
-	ticketEvents := 0
-	for _, event := range pending {
-		if event.AggregateType == "ticket" {
-			ticketEvents++
-		}
-	}
-	if ticketEvents != 2 {
-		t.Fatalf("eventos de ticket en outbox = %d, quiere 2", ticketEvents)
-	}
 }
 
 func TestSQLitePaymentIdempotencyKey(t *testing.T) {
 	database := openSQLite(t)
-	svc := billing.NewService(billing.NewSQLiteRepository(database))
+	svc := billing.NewService(billing.NewRepository(database))
 
 	key := "idem-sqlite-001"
-	first, err := svc.RegisterPayment(nil, nil, 100, "COP", "cash", "", nil, &key)
+	first, err := svc.RegisterPayment(nil, nil, 100, "CRC", "cash", "", nil, &key)
 	if err != nil {
 		t.Fatalf("primer pago: %v", err)
 	}
-	second, err := svc.RegisterPayment(nil, nil, 100, "COP", "cash", "", nil, &key)
+	second, err := svc.RegisterPayment(nil, nil, 100, "CRC", "cash", "", nil, &key)
 	if err != nil {
 		t.Fatalf("pago idempotente repetido: %v", err)
 	}
 	if second.ID != first.ID {
 		t.Fatalf("idempotencia devolvió pagos distintos: %s != %s", second.ID, first.ID)
+	}
+}
+
+func TestSQLiteSeedAndAutoAssignSpace(t *testing.T) {
+	database := openSQLite(t)
+	cfg := testConfig()
+	cfg.SiteTimezone = "America/Costa_Rica"
+	cfg.SeedSiteCode = "TEST-01"
+	cfg.SeedSiteName = "Sede Test"
+	cfg.SeedAdminPassword = "AdminTest123!"
+	cfg.SeedOperatorPassword = "OperTest123!"
+	cfg.SeedAuditorPassword = "AuditTest123!"
+	cfg.SeedVehiclePlate = "XYZ987"
+
+	res, err := seed.Run(database, cfg)
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// El seed es idempotente.
+	if _, err := seed.Run(database, cfg); err != nil {
+		t.Fatalf("seed repetido: %v", err)
+	}
+
+	vtRepo := catalog.NewVehicleTypeRepo(database)
+	catalogSvc := catalog.NewService(catalog.NewSiteRepo(database), catalog.NewZoneRepo(database), catalog.NewSpaceRepo(database), vtRepo)
+	moto, err := vtRepo.ByCode("moto")
+	if err != nil {
+		t.Fatalf("tipo moto: %v", err)
+	}
+	free, err := catalogSvc.FreeSpaces(res.SiteID, moto.ID)
+	if err != nil {
+		t.Fatalf("FreeSpaces: %v", err)
+	}
+	if len(free) != 5 {
+		t.Fatalf("espacios de moto libres = %d, quiere 5", len(free))
+	}
+	space, err := catalogSvc.GetSpace(free[0].SpaceID)
+	if err != nil || space.Code != "M-01" {
+		t.Fatalf("primer espacio de moto = %+v (%v), quiere M-01", space, err)
+	}
+}
+
+func TestSQLiteCashReportUsesSiteDate(t *testing.T) {
+	database := openSQLite(t)
+	catalogSvc := catalog.NewService(catalog.NewSiteRepo(database), catalog.NewZoneRepo(database), catalog.NewSpaceRepo(database), catalog.NewVehicleTypeRepo(database))
+	site, _ := catalogSvc.CreateSite("Sede Caja", "CAJA-01", "America/Costa_Rica", "CRC", 5)
+	zone, _ := catalogSvc.CreateZone(site.ID, "Zona", "car", 5)
+	space, _ := catalogSvc.CreateSpace(zone.ID, "C-01", "car")
+	vt, _ := catalogSvc.CreateVehicleType("Carro", "car")
+	plan, _ := rateplans.NewService(rateplans.NewRepository(database)).Create(site.ID, "Tarifa", "CRC", 0, 60, 100000, 100000, 0, 0, &vt.ID)
+
+	parkingSvc := parking.NewService(parking.NewRepository(database, false)).
+		WithRatePlanReader(rateplans.NewService(rateplans.NewRepository(database))).
+		WithSpaceUpdater(catalogSvc)
+	ticket, err := parkingSvc.CreateTicket(site.ID, zone.ID, space.ID, "", "CAJA1", "CAJA1", vt.ID, plan.ID)
+	if err != nil {
+		t.Fatalf("CreateTicket: %v", err)
+	}
+	if _, err := parkingSvc.Settle(ticket.ID, 100000, "cash", ""); err != nil {
+		t.Fatalf("Settle: %v", err)
+	}
+
+	loc, _ := time.LoadLocation("America/Costa_Rica")
+	today := time.Now().In(loc).Format("2006-01-02")
+	repo := reporting.NewRepository(database)
+	cash, err := repo.CajaDiaria(site.ID, today)
+	if err != nil {
+		t.Fatalf("CajaDiaria: %v", err)
+	}
+	if cash.Count != 1 || cash.TotalCents != 100000 || cash.ByMethod["cash"] != 100000 {
+		t.Fatalf("caja = %+v, quiere 1 pago de 100000 en efectivo", cash)
+	}
+	days, err := repo.Ingresos(site.ID, today, today)
+	if err != nil || len(days) != 1 || days[0].TotalCents != 100000 {
+		t.Fatalf("ingresos = %+v (%v)", days, err)
 	}
 }

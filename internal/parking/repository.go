@@ -43,9 +43,15 @@ type SpaceStatusUpdater interface {
 	UpdateStatus(spaceID, status string) error
 }
 
-// VehicleTypeResolver resuelve el ID de un tipo de vehículo activo por código.
-type VehicleTypeResolver interface {
-	VehicleTypeIDByCode(code string) (string, error)
+// SpaceAllocator lista los espacios libres de una sede para un tipo de vehículo.
+type SpaceAllocator interface {
+	FreeSpaces(siteID, vehicleTypeID string) ([]SpaceCandidate, error)
+}
+
+// SpaceCandidate es un espacio libre propuesto para asignación automática.
+type SpaceCandidate struct {
+	SpaceID string
+	ZoneID  string
 }
 
 // SubscriptionChecker valida si un vehículo tiene abono vigente.
@@ -62,11 +68,6 @@ type Subscription struct {
 	PlanName  string
 	ExpiresAt time.Time
 	Status    string
-}
-
-// EventPublisher publica cambios de ocupación en tiempo real.
-type EventPublisher interface {
-	Publish(siteID, event string, payload map[string]any)
 }
 
 // TicketEvent representa un cambio de estado en un ticket.

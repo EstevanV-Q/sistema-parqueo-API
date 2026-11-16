@@ -68,10 +68,6 @@ func (f *fakeRepo) UpdateStatus(id, status string) error {
 	return nil
 }
 
-func (f *fakeRepo) CajaDiaria(siteID, date string) (*CajaDiaria, error) {
-	return &CajaDiaria{SiteID: siteID, Date: date, ByMethod: map[string]int64{}}, nil
-}
-
 func (f *fakeRepo) ListBySite(siteID, from, to string, limit, offset int) ([]*Payment, error) {
 	return nil, nil
 }
@@ -87,8 +83,8 @@ func TestRegisterPayment(t *testing.T) {
 	if p.AmountCents != 3000 {
 		t.Fatalf("amount = %d, quiere 3000", p.AmountCents)
 	}
-	if p.Currency != "COP" {
-		t.Fatalf("currency = %s, quiere COP", p.Currency)
+	if p.Currency != "CRC" {
+		t.Fatalf("currency = %s, quiere CRC", p.Currency)
 	}
 	if p.Method != MethodCash {
 		t.Fatalf("method = %s, quiere cash", p.Method)

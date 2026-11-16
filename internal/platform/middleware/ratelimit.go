@@ -63,9 +63,7 @@ func (l *limiter) cleanup() {
 	}
 }
 
-// KeyExtractor extrae la clave de rate limiting de una petición HTTP.
-// Por defecto se usa la IP del cliente, pero se puede inyectar una función
-// que use el user_id del JWT o la X-Device-Key para un control más fino.
+// KeyExtractor obtiene la clave de rate limiting (por defecto, la IP).
 type KeyExtractor func(r *http.Request) string
 
 // defaultKeyExtractor usa la IP del cliente como clave.

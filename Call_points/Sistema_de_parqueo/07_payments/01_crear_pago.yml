@@ -19,7 +19,7 @@ http:
     data: |-
       {
         "amount_cents": 5000,
-        "currency": "COP",
+        "currency": "CRC",
         "method": "cash",
         "reference": "bruno-{{$timestamp}}",
         "idempotency_key": "bruno-{{$timestamp}}"

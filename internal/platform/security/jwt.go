@@ -17,7 +17,6 @@ import (
 const (
 	TokenTypeAccess  = "access"
 	TokenTypeRefresh = "refresh"
-	TokenTypeWS      = "ws"
 )
 
 // Claims contiene los claims de los JWT emitidos por el sistema.
@@ -99,30 +98,6 @@ func RefreshToken(secret, issuer, audience, userID string, expiry time.Duration,
 	return sign(secret, claims)
 }
 
-// WSTicket genera un token efímero para abrir el WebSocket. Evita exponer el
-// access token de larga vida en la query string.
-func WSTicket(secret, issuer, audience, userID, username, role string, siteID *string, expiry time.Duration, now ...clock.NowFunc) (string, time.Time, error) {
-	nowFn := nowFunc(now)
-	expiresAt := nowFn().Add(expiry)
-	issuedAt := nowFn()
-	claims := Claims{
-		UserID:    userID,
-		Username:  username,
-		Role:      role,
-		SiteID:    siteID,
-		TokenType: TokenTypeWS,
-		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    issuer,
-			Audience:  jwt.ClaimStrings{audience},
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(issuedAt),
-			NotBefore: jwt.NewNumericDate(issuedAt),
-			Subject:   userID,
-		},
-	}
-	return sign(secret, claims)
-}
-
 func parseClaims(secret, issuer, audience, tokenStr string) (*Claims, error) {
 	if tokenStr == "" {
 		return nil, errors.New("token requerido")
@@ -180,19 +155,4 @@ func ParseRefreshToken(secret, issuer, audience, tokenStr string) (string, error
 		return "", errors.New("claims de refresh incompletos")
 	}
 	return claims.UserID, nil
-}
-
-// ParseWSTicket valida el token efímero usado para abrir el WebSocket.
-func ParseWSTicket(secret, issuer, audience, tokenStr string) (*Claims, error) {
-	claims, err := parseClaims(secret, issuer, audience, tokenStr)
-	if err != nil {
-		return nil, err
-	}
-	if claims.TokenType != TokenTypeWS {
-		return nil, errors.New("tipo de token inválido")
-	}
-	if claims.UserID == "" || claims.Role == "" || claims.Subject != claims.UserID {
-		return nil, errors.New("claims de websocket incompletos")
-	}
-	return claims, nil
 }

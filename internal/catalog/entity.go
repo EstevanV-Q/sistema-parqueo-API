@@ -40,3 +40,9 @@ type VehicleType struct {
 	IsActive  bool
 	CreatedAt string
 }
+
+// SpaceRef identifica un espacio y su zona para la asignación automática.
+type SpaceRef struct {
+	SpaceID string
+	ZoneID  string
+}

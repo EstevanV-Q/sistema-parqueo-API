@@ -27,7 +27,7 @@ func (s *Service) CreatePayment(ticketID string, amountCents int64, method strin
 		ID:            ids.UUIDv7String(),
 		TicketID:      &ticketID,
 		AmountCents:   amountCents,
-		Currency:      "COP",
+		Currency:      "CRC",
 		Method:        method,
 		Status:        PaymentCompleted,
 		CashierUserID: &cashierUserID,
@@ -47,7 +47,7 @@ func (s *Service) RegisterPayment(ticketID, subscriptionID *string, amountCents 
 		method = MethodCash
 	}
 	if currency == "" {
-		currency = "COP"
+		currency = "CRC"
 	}
 
 	// Verificar idempotencia

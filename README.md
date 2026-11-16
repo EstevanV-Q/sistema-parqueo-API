@@ -1,196 +1,123 @@
-# Parking Backend
+# Sistema de Control de Parqueo
 
-Backend del Sistema de Control de Parqueo/Estacionamiento — Proyecto Universitario.
+Proyecto universitario. Controla la entrada y salida de vehículos, asigna
+espacios automáticamente y calcula el cobro según el tiempo transcurrido.
+Incluye una interfaz web y se distribuye como un único ejecutable de Windows.
 
-## Stack
+## Uso rápido (Windows)
 
-- **Go 1.27** + `chi` (router HTTP)
-- **MySQL 8** (base de datos principal)
-- **JWT** (access 15 min + refresh rotativo, Argon2id)
-- **Docker Compose** + Caddy (despliegue)
-- **UUIDv7** (ordenables por tiempo, BINARY(16))
-- **Dinero en enteros** (centavos, nunca float)
+1. Descargar `parqueo.exe` y hacer doble clic. No requiere instalar nada.
+2. Se abre el navegador en `http://localhost:8080` (si el puerto está ocupado,
+   usa el siguiente libre; la consola muestra la dirección).
+3. Ingresar con un usuario de prueba:
+
+| Usuario    | Contraseña         | Puede                                  |
+|------------|--------------------|----------------------------------------|
+| `operador` | `parqueo-operador` | Registrar entradas, salidas y cobros   |
+| `admin`    | `parqueo-admin`    | Todo, incluida la caja y los reportes  |
+| `auditor`  | `parqueo-auditor`  | Consultar caja, reportes y auditoría   |
+
+Los datos se guardan en la carpeta `datos/` junto al ejecutable. Para empezar
+de cero, cerrar el programa y borrar esa carpeta. Para detenerlo, cerrar la
+ventana de consola.
+
+### Datos de prueba
+
+- Sede **Parqueo Central**: 20 espacios de carro (A-01 a A-20) y 5 de moto (M-01 a M-05).
+- Tarifas: carro ₡1 000/hora y moto ₡500/hora, 10 minutos de gracia, cada hora
+  iniciada se cobra completa, tope diario de 12 horas.
+- Vehículo abonado `XYZ987`: entra y sale sin pagar.
+
+## Funciones
+
+- **Entrada**: se escribe la placa y el tipo; el sistema asigna el primer
+  espacio libre compatible (o uno elegido a mano). Rechaza placas que ya están
+  dentro y avisa cuando el parqueo está lleno.
+- **Salida y cobro**: calcula el monto (gracia, fracciones, mínimo y tope
+  diario), registra el pago (efectivo con vuelto, tarjeta o SINPE), libera el
+  espacio e imprime un recibo.
+- **Mapa de espacios**, **vehículos dentro**, **caja del día**, **ingresos** y **tarifas**.
+
+## Compilar
+
+Requiere Go 1.27 o superior.
+
+```bash
+make exe        # genera bin/parqueo.exe (Windows, sin dependencias)
+make desktop    # ejecuta la versión de escritorio en el equipo actual
+make test       # pruebas unitarias e integración con SQLite
+```
+
+Sin `make`:
+
+```bash
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/parqueo.exe ./cmd/parqueo
+```
 
 ## Estructura
 
 ```
 cmd/
-  api/          Punto de entrada de la API
-  migrate/      Migraciones goose (up/down/status)
-  seed/         Datos de demostración
+  parqueo/      Ejecutable de escritorio (SQLite + interfaz + datos de prueba)
+  api/          Servidor HTTP configurable por variables de entorno
+  migrate/      Migraciones de MySQL (goose)
+  seed/         Carga de datos de prueba
+  healthcheck/  Verificación de salud para Docker
 internal/
-  auth/         Usuarios, roles, login, refresh, logout, me
-  catalog/      Sedes, zonas, espacios, tipos de vehículo
-  parking/      Tickets, entrada/salida, motor de tarifas
-  parking/pricing/  Cálculo puro de tarifas (gracia, mínimo, fracción, tope)
-  billing/      Pagos, recibos internos, idempotencia
-  subscriptions/# Abonados/mensualidades (validación por placa)
-  vehicles/     Vehículos (placa normalizada, tipo)
-  customers/    Clientes (documento, nombre, contacto)
+  app/          Arma servicios, handlers y rutas
+  parking/      Tickets: entrada, cotización, cobro, cancelación, asignación de espacio
+  parking/pricing/  Cálculo de la tarifa (función pura)
+  catalog/      Sedes, zonas, espacios y tipos de vehículo
+  billing/      Pagos e idempotencia
   rateplans/    Tarifas por sede y tipo de vehículo
-  devices/      Dispositivos (barrera virtual, eventos HMAC)
-  realtime/     Ocupación por WebSocket (salas por sede)
-  reporting/    Ocupación, ingresos, caja diaria
-  platform/     DB, logger, seguridad, JWT, errores, IDs, contexto
-  shared/       Money (centavos), Plate (normalización)
-migrations/     Migraciones SQL versionadas (goose)
-deploy/         Caddyfile (TLS)
+  subscriptions/  Abonados
+  vehicles/, customers/  Vehículos y clientes
+  reporting/    Ocupación, ingresos y caja diaria
+  auth/         Usuarios, roles y JWT
+  audit/        Bitácora de operaciones
+  seed/         Datos de prueba (idempotente)
+  platform/     Base de datos, errores, middleware, seguridad
+web/static/     Interfaz web (HTML, CSS y JS sin dependencias externas)
+migrations/     Esquema MySQL
+api/            Especificación OpenAPI (disponible en /docs)
 ```
 
-## Requisitos previos
+Arquitectura por capas: `handler → service → repository → MySQL/SQLite`.
+Los repositorios usan las mismas consultas en ambos motores.
 
-- Go 1.27+
-- MySQL 8 (o Docker Compose)
-- Docker (opcional, para contenedores)
-
-## Ejecución local
+## Modo servidor (MySQL)
 
 ```bash
-# 1. Copiar variables de entorno
-cp .env.example .env   # o usar .env ya creado
-
-# 2. Levantar MySQL
+cp .env.example .env            # completar contraseñas y JWT_SECRET
 docker compose up -d mysql
-
-# 3. Ejecutar migraciones
-go run cmd/migrate/main.go up
-
-# 4. Cargar datos de demostración
-go run cmd/seed/main.go
-
-# 5. Ejecutar la API
-go run ./cmd/api
-```
-
-La API escucha en `http://localhost:8080`.
-
-### Pruebas de humo de los endpoints
-
-Con la API levantada y un usuario `admin` sembrado:
-
-```powershell
-$env:SMOKE_ADMIN_PASSWORD = '<contraseña del admin>'
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\smoke-api.ps1
-```
-
-El script recorre salud, autenticación, catálogo, vehículos, clientes,
-tarifas, tickets, pagos, abonos, dispositivos, reportes, auditoría y
-WebSocket. Para probar la API de borde SQLite, define también
-`SMOKE_BASE=http://127.0.0.1:8082`. Crea datos de prueba, por lo que debe
-ejecutarse solo en desarrollo.
-
-### API de borde (operación offline)
-
-Cada sede puede ejecutar una instancia local con SQLite. La operación de
-tickets, pagos, abonados y dispositivos funciona sin conexión; los cambios se
-guardan en una outbox transaccional y se envían al central cuando hay red.
-
-```bash
-# Variables mínimas para el borde
-DB_DRIVER=sqlite
-SQLITE_PATH=./data/edge.db
-JWT_SECRET=<secreto-largo-y-aleatorio>
-SEED_ADMIN_PASSWORD=<mínimo-12>
-SEED_OPERATOR_PASSWORD=<mínimo-12>
-SEED_AUDITOR_PASSWORD=<mínimo-12>
-SEED_DEVICE_API_KEY=<mínimo-16>
-
-# Crea el esquema y los datos mínimos de la sede
+go run ./cmd/migrate up
 go run ./cmd/seed
-
-# API local de la sede
 go run ./cmd/api
 ```
 
-La outbox se sincroniza con `SYNC_URL` y `SYNC_TOKEN`; si `SYNC_URL` está
-vacío, el borde sigue operando y guarda los eventos localmente. El central
-expone `POST /api/v1/sync/events` para recibir los eventos de forma idempotente
-en `sync_inbox` (requiere `SYNC_TOKEN` y el encabezado `X-Site-ID`).
+Con `DB_DRIVER=sqlite` y `SQLITE_PATH=./datos/parqueo.db` se usa SQLite sin
+MySQL ni migraciones (el esquema se crea solo).
 
-## Endpoints principales
+## API principal
 
-### Auth (público, excepto register)
-- `POST /api/v1/auth/login` — iniciar sesión
-- `POST /api/v1/auth/refresh` — renovar access token
-- `POST /api/v1/auth/logout` — cerrar sesión
-- `GET /api/v1/auth/me` — usuario autenticado
-- `POST /api/v1/auth/ws-ticket` — ticket efímero para WebSocket (autenticado)
-- `POST /api/v1/auth/register` — crear usuario (solo admin)
+Documentación interactiva en `/docs`. Todas las rutas (salvo login) requieren
+`Authorization: Bearer <token>`. Los montos van en céntimos: ₡1 000 = `100000`.
 
-### Parqueo (tickets)
-- `POST /api/v1/tickets` — entrada de vehículo
-- `POST /api/v1/tickets/{id}/quote` — cotizar salida
-- `POST /api/v1/tickets/{id}/settle` — pagar y salir
-- `POST /api/v1/tickets/{id}/cancel` — cancelar ticket
-- `GET /api/v1/tickets?site_id=&status=` — listar tickets
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/api/v1/auth/login` | Iniciar sesión |
+| POST | `/api/v1/tickets` | Registrar entrada (`space_id` opcional) |
+| POST | `/api/v1/tickets/{id}/quote` | Cotizar salida |
+| POST | `/api/v1/tickets/{id}/settle` | Pagar y registrar salida |
+| POST | `/api/v1/tickets/{id}/cancel` | Anular ticket |
+| GET | `/api/v1/tickets?site_id=&status=` | Listar tickets |
+| GET | `/api/v1/catalog/spaces?zone_id=` | Espacios y su estado |
+| GET | `/api/v1/reports/occupancy?site_id=` | Ocupación actual |
+| GET | `/api/v1/reports/cash-daily?site_id=&date=` | Caja del día |
+| GET | `/api/v1/reports/revenue?site_id=&from=&to=` | Ingresos por día |
 
-### Pagos
-- `POST /api/v1/payments` — registrar pago
-- `GET /api/v1/payments` — listar pagos
-- `GET /api/v1/payments/{id}` — obtener pago
-
-### Abonados
-- `POST /api/v1/subscriptions` — crear abono
-- `GET /api/v1/subscriptions/validate?vehicle_id=&site_id=` — validar abono
-
-### Catálogo
-- `POST /api/v1/catalog/sites` — crear sede
-- `GET /api/v1/catalog/sites` — listar sedes
-- `POST /api/v1/catalog/zones` — crear zona
-- `POST /api/v1/catalog/spaces` — crear espacio
-- `POST /api/v1/catalog/vehicle-types` — crear tipo de vehículo
-- `POST /api/v1/catalog/rate-plans` — crear tarifa
-
-### Reportes
-- `GET /api/v1/reports/occupancy?site_id=` — ocupación en tiempo real
-- `GET /api/v1/reports/revenue?site_id=&from=&to=` — ingresos por día
-- `GET /api/v1/reports/cash-daily?site_id=&date=` — caja diaria
-
-### Dispositivos (barrera virtual simulada)
-- `POST /api/v1/devices` — registrar dispositivo
-- `POST /api/v1/devices/events` — evento de barrera/LPR/RFID
-- `GET /api/v1/devices` — listar dispositivos
-
-### Tiempo real
-- `GET /api/v1/ws/occupancy?site_id=&ticket=` — WebSocket de ocupación (ticket de `/auth/ws-ticket`)
-
-### Salud
-- `GET /healthz` — liveness
-- `GET /readyz` — readiness (incluye DB)
-
-## Datos de demostración (seed)
-
-El seed usa usuarios `admin`, `operador` y `auditor`, pero no define contraseñas
-por defecto. Antes de ejecutarlo configura `SEED_ADMIN_PASSWORD`,
-`SEED_OPERATOR_PASSWORD`, `SEED_AUDITOR_PASSWORD` y `SEED_DEVICE_API_KEY`.
-
-- **Sede**: Centro Comercial Plaza (PLAZA-01)
-- **Espacios**: A-01 a A-10 (zona General - Carros)
-- **Vehículo abonado**: XYZ-987 (plan Mensual Carro, 30 días)
-- **Dispositivo**: Barrera Principal (clave tomada de `SEED_DEVICE_API_KEY`)
-
-## Arquitectura
-
-Capas estrictas: `handler → service → repository (interfaz) → MySQL/SQLite`.
-El dominio y el motor de tarifas son puros (sin dependencias de infraestructura).
-
-- **Central**: MySQL, catálogo/tarifas/usuarios, consolidación y reportes.
-- **Borde**: API por sede con SQLite WAL, login offline con hashes cacheados,
-  tickets y pagos locales, y outbox transaccional hacia el central.
-- **Sincronización**: eventual e idempotente por evento; el central recibe en
-  `sync_inbox` y no edita tickets/pagos del borde en v1.
-- **Consistencia**: una operación local y su evento de outbox se confirman en
-  la misma transacción. Los conflictos quedan visibles para revisión.
-
-## Próximos pasos (pendiente)
-
-- Procesador del `sync_inbox` para consolidar tickets/pagos en tablas centrales.
-- Descarga de catálogo/tarifas/usuarios desde el central hacia el borde.
-- Panel de conflictos y reintentos manuales de sincronización.
-- Swagger/OpenAPI (`/swagger/*`)
-- Frontend (React/Vue/Go templates)
-- Tests de integración con MySQL real (testcontainers)
+La colección de Bruno en `Call_points/` prueba todos los endpoints.
 
 ## Licencia
 
-Uso académico — Proyecto universitario.
+Uso académico.

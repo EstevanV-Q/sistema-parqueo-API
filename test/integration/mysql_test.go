@@ -46,13 +46,13 @@ func TestTicketLifecycle_MySQL(t *testing.T) {
 	cleanDatabase(t, db)
 
 	// --- Catálogo base ---
-	siteRepo := catalog.NewMySQLSiteRepo(db)
-	zoneRepo := catalog.NewMySQLZoneRepo(db)
-	spaceRepo := catalog.NewMySQLSpaceRepo(db)
-	vtRepo := catalog.NewMySQLVehicleTypeRepo(db)
+	siteRepo := catalog.NewSiteRepo(db)
+	zoneRepo := catalog.NewZoneRepo(db)
+	spaceRepo := catalog.NewSpaceRepo(db)
+	vtRepo := catalog.NewVehicleTypeRepo(db)
 	catalogSvc := catalog.NewService(siteRepo, zoneRepo, spaceRepo, vtRepo)
 
-	site, err := catalogSvc.CreateSite("Sede Test", "TEST-01", "America/Bogota", "COP", 10)
+	site, err := catalogSvc.CreateSite("Sede Test", "TEST-01", "America/Costa_Rica", "CRC", 10)
 	if err != nil {
 		t.Fatalf("CreateSite: %v", err)
 	}
@@ -70,14 +70,14 @@ func TestTicketLifecycle_MySQL(t *testing.T) {
 	}
 
 	// --- Tarifa ---
-	rateplansSvc := rateplans.NewService(rateplans.NewMySQLRepository(db))
-	if _, err := rateplansSvc.Create(site.ID, "Tarifa Test", "COP", 10, 60, 1000, 1500, 20000, 25000, &vt.ID); err != nil {
+	rateplansSvc := rateplans.NewService(rateplans.NewRepository(db))
+	if _, err := rateplansSvc.Create(site.ID, "Tarifa Test", "CRC", 10, 60, 1000, 1500, 20000, 25000, &vt.ID); err != nil {
 		t.Fatalf("CreateRatePlan: %v", err)
 	}
 
 	// --- Servicios de parking y billing ---
-	billingSvc := billing.NewService(billing.NewMySQLRepository(db))
-	parkingSvc := parking.NewService(parking.NewMySQLRepository(db)).
+	billingSvc := billing.NewService(billing.NewRepository(db))
+	parkingSvc := parking.NewService(parking.NewRepository(db, true)).
 		WithRatePlanReader(rateplansSvc).
 		WithSpaceUpdater(catalogSvc)
 

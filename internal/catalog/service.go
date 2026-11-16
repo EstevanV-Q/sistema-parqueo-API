@@ -220,22 +220,6 @@ func (s *Service) ListVehicleTypes() ([]*VehicleType, error) {
 	return s.vtRepo.List()
 }
 
-// VehicleTypeIDByCode resuelve el ID de un tipo de vehículo activo por su código.
-// Se usa para entradas automáticas LPR, donde no hay un tipo explícito.
-func (s *Service) VehicleTypeIDByCode(code string) (string, error) {
-	if code == "" {
-		return "", apperr.New(apperr.ErrInvalidInput, "el código de tipo de vehículo es requerido", 400, nil)
-	}
-	vt, err := s.vtRepo.ByCode(code)
-	if err != nil {
-		return "", err
-	}
-	if !vt.IsActive {
-		return "", apperr.New(apperr.ErrNotFound, "tipo de vehículo inactivo", 404, nil)
-	}
-	return vt.ID, nil
-}
-
 func (s *Service) UpdateVehicleType(id, name, code string, active bool) (*VehicleType, error) {
 	vt, err := s.vtRepo.ByID(id)
 	if err != nil {
@@ -255,4 +239,41 @@ func (s *Service) UpdateVehicleType(id, name, code string, active bool) (*Vehicl
 
 func (s *Service) DeleteVehicleType(id string) error {
 	return s.vtRepo.Delete(id)
+}
+
+// ---- Asignación de espacios ----
+
+// FreeSpaces lista los espacios libres de la sede para el tipo de vehículo,
+// en orden de zona y código.
+func (s *Service) FreeSpaces(siteID, vehicleTypeID string) ([]SpaceRef, error) {
+	typeCode := ""
+	if vehicleTypeID != "" {
+		if vt, err := s.vtRepo.ByID(vehicleTypeID); err == nil && vt != nil {
+			typeCode = vt.Code
+		}
+	}
+	zones, err := s.zoneRepo.ListBySite(siteID)
+	if err != nil {
+		return nil, err
+	}
+	var out []SpaceRef
+	for _, z := range zones {
+		if !z.IsActive {
+			continue
+		}
+		spaces, err := s.spaceRepo.ListByZone(z.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, sp := range spaces {
+			if !sp.IsActive || sp.Status != "free" {
+				continue
+			}
+			if typeCode != "" && sp.Type != "" && sp.Type != typeCode {
+				continue
+			}
+			out = append(out, SpaceRef{SpaceID: sp.ID, ZoneID: z.ID})
+		}
+	}
+	return out, nil
 }

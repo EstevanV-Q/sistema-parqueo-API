@@ -1,0 +1,148 @@
+package auth
+
+import (
+	"database/sql"
+	"time"
+
+	"parking-backend/internal/platform/apperr"
+	"parking-backend/internal/platform/ids"
+)
+
+type sqlRepo struct {
+	db *sql.DB
+}
+
+func NewRepository(db *sql.DB) Repository {
+	return &sqlRepo{db: db}
+}
+
+func (r *sqlRepo) Create(u *User) error {
+	idBin := ids.UUIDv7()
+	u.ID = ids.Bin16ToString(idBin)
+
+	query := `INSERT INTO users (id, username, email, password_hash, role, site_id, active, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	var siteID []byte
+	if u.SiteID != nil {
+		siteID = ids.StringToBin16(*u.SiteID)
+	}
+	now := time.Now().UTC()
+	tx, err := r.db.Begin()
+	if err != nil {
+		return apperr.From(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(query, idBin, u.Username, u.Email, u.PasswordHash, u.Role, siteID, u.Active, now)
+	if err != nil {
+		return apperr.From(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return apperr.From(err)
+	}
+	u.CreatedAt = now.Format(time.RFC3339)
+	return nil
+}
+
+func (r *sqlRepo) ByUsername(username string) (*User, error) {
+	query := `SELECT id, username, email, password_hash, role, site_id, active, created_at, last_login
+              FROM users WHERE username = ? LIMIT 1`
+	row := r.db.QueryRow(query, username)
+	return scanUser(row)
+}
+
+func (r *sqlRepo) ByEmail(email string) (*User, error) {
+	query := `SELECT id, username, email, password_hash, role, site_id, active, created_at, last_login
+              FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`
+	row := r.db.QueryRow(query, email)
+	return scanUser(row)
+}
+
+func (r *sqlRepo) ByID(id string) (*User, error) {
+	query := `SELECT id, username, email, password_hash, role, site_id, active, created_at, last_login
+              FROM users WHERE id = ? LIMIT 1`
+	row := r.db.QueryRow(query, ids.StringToBin16(id))
+	return scanUser(row)
+}
+
+func (r *sqlRepo) UpdateLastLogin(id string, at time.Time) error {
+	_, err := r.db.Exec(`UPDATE users SET last_login = ? WHERE id = ?`, at, ids.StringToBin16(id))
+	return apperr.FromErr(err)
+}
+
+func (r *sqlRepo) CreateRefreshToken(t *RefreshToken) error {
+	idBin := ids.UUIDv7()
+	t.ID = ids.Bin16ToString(idBin)
+	query := `INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, created_at)
+	          VALUES (?, ?, ?, ?, ?)`
+	_, err := r.db.Exec(query, idBin, ids.StringToBin16(t.UserID), t.TokenHash, t.ExpiresAt, time.Now().UTC())
+	if err != nil {
+		return apperr.From(err)
+	}
+	return nil
+}
+
+func (r *sqlRepo) RefreshTokenByHash(hash string) (*RefreshToken, error) {
+	query := `SELECT id, user_id, token_hash, expires_at, revoked_at, created_at
+	          FROM refresh_tokens WHERE token_hash = ? LIMIT 1`
+	var t RefreshToken
+	var idBin, userIDBin []byte
+	var revokedAt sql.NullTime
+	err := r.db.QueryRow(query, hash).Scan(&idBin, &userIDBin, &t.TokenHash, &t.ExpiresAt, &revokedAt, &t.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrNotFound
+		}
+		return nil, apperr.From(err)
+	}
+	t.ID = ids.Bin16ToString(idBin)
+	t.UserID = ids.Bin16ToString(userIDBin)
+	if revokedAt.Valid {
+		t.RevokedAt = &revokedAt.Time
+	}
+	return &t, nil
+}
+
+func (r *sqlRepo) RevokeRefreshToken(id string) error {
+	_, err := r.db.Exec(`UPDATE refresh_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`,
+		time.Now().UTC(), ids.StringToBin16(id))
+	return apperr.FromErr(err)
+}
+
+func (r *sqlRepo) RevokeUserRefreshTokens(userID string) error {
+	_, err := r.db.Exec(`UPDATE refresh_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`,
+		time.Now().UTC(), ids.StringToBin16(userID))
+	return apperr.FromErr(err)
+}
+
+func scanUser(row *sql.Row) (*User, error) {
+	var u User
+	var idBin []byte
+	var siteIDRaw interface{}
+	var createdAt sql.NullString
+	var lastLogin sql.NullString
+	err := row.Scan(&idBin, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &siteIDRaw, &u.Active, &createdAt, &lastLogin)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrNotFound
+		}
+		return nil, apperr.From(err)
+	}
+
+	u.ID = ids.Bin16ToString(idBin)
+	if siteIDRaw != nil {
+		if b, ok := siteIDRaw.([]byte); ok {
+			s := ids.Bin16ToString(b)
+			if s != "" {
+				u.SiteID = &s
+			}
+		}
+	}
+	if createdAt.Valid {
+		u.CreatedAt = createdAt.String
+	}
+	if lastLogin.Valid {
+		u.LastLogin = &lastLogin.String
+	}
+	return &u, nil
+}
