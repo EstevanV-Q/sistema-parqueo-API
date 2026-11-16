@@ -4,7 +4,6 @@ import (
 	"errors"
 	"log"
 	"strings"
-	"time"
 
 	"parking-backend/internal/config"
 	"parking-backend/internal/platform/apperr"
@@ -175,18 +174,4 @@ func (s *Service) LogoutAll(userID string) error {
 // Me devuelve el usuario por su ID.
 func (s *Service) Me(userID string) (*User, error) {
 	return s.repo.ByID(userID)
-}
-
-// WSTicket emite un token efímero para abrir el WebSocket de ocupación.
-func (s *Service) WSTicket(userID, username, role string, siteID *string) (string, time.Time, error) {
-	return security.WSTicket(
-		s.cfg.JWTSecret,
-		s.cfg.JWTIssuer,
-		s.cfg.JWTAudience,
-		userID,
-		username,
-		role,
-		siteID,
-		30*time.Second,
-	)
 }

@@ -121,7 +121,7 @@ jobs:
       - name: Build binario
         run: go build -o bin/api ./cmd/api
 
-      - name: Verificar que compila todo (incluido migrate/seed/offline)
+      - name: Verificar que compila todo (incluido migrate/seed/parqueo)
         run: go build ./...
 
       - name: Set up Docker Buildx

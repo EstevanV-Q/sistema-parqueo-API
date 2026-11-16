@@ -44,7 +44,6 @@ services:
       DB_USER: ${DB_USER:-parking_user}
       DB_PASS: ${DB_PASS:?DB_PASS es requerido}
       DB_NAME: ${DB_NAME:-parking_db}
-      SYNC_TOKEN: ${SYNC_TOKEN:-}
       PORT: ${PORT:-8080}
       ENV: ${ENV:-development}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -54,8 +53,7 @@ services:
       JWT_ACCESS: ${JWT_ACCESS:-15m}
       JWT_REFRESH: ${JWT_REFRESH:-72h}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8080}
-      SITE_TIMEZONE: ${SITE_TIMEZONE:-America/Bogota}
-      DEFAULT_VEHICLE_TYPE_CODE: ${DEFAULT_VEHICLE_TYPE_CODE:-car}
+      SITE_TIMEZONE: ${SITE_TIMEZONE:-America/Costa_Rica}
       READ_TIMEOUT: ${READ_TIMEOUT:-10s}
       WRITE_TIMEOUT: ${WRITE_TIMEOUT:-10s}
       IDLE_TIMEOUT: ${IDLE_TIMEOUT:-60s}

@@ -6,34 +6,27 @@ import (
 
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
-	"parking-backend/internal/platform/outbox"
 )
 
-type mysqlRepo struct {
+type sqlRepo struct {
 	db        *sql.DB
 	forUpdate bool
-	outbox    *outbox.Store
 }
 
-func NewMySQLRepository(db *sql.DB) Repository {
-	return &mysqlRepo{db: db, forUpdate: true}
+// NewRepository crea el repositorio de tickets. lockRows agrega FOR UPDATE
+// (MySQL); SQLite no lo soporta y ya serializa las escrituras.
+func NewRepository(db *sql.DB, lockRows bool) Repository {
+	return &sqlRepo{db: db, forUpdate: lockRows}
 }
 
-// NewSQLiteRepository usa el mismo esquema lógico que MySQL (IDs BLOB de 16
-// bytes) pero sin SELECT ... FOR UPDATE. El bloqueo se obtiene al abrir la
-// transacción con _txlock=immediate en el DSN de SQLite.
-func NewSQLiteRepository(db *sql.DB) Repository {
-	return &mysqlRepo{db: db, outbox: outbox.NewStore(db)}
-}
-
-func (r *mysqlRepo) lockClause() string {
+func (r *sqlRepo) lockClause() string {
 	if r.forUpdate {
 		return " FOR UPDATE"
 	}
 	return ""
 }
 
-func (r *mysqlRepo) Create(t *Ticket) error {
+func (r *sqlRepo) Create(t *Ticket) error {
 	idBin := ids.UUIDv7()
 	t.ID = ids.Bin16ToString(idBin)
 
@@ -66,21 +59,6 @@ func (r *mysqlRepo) Create(t *Ticket) error {
 	if err != nil {
 		return apperr.From(err)
 	}
-	if err := r.outbox.EnqueueTx(tx, "ticket", t.ID, "ticket.entered", map[string]any{
-		"ticket_id":        t.ID,
-		"site_id":          t.SiteID,
-		"space_id":         t.SpaceID,
-		"plate_normalized": t.PlateNormalized,
-		"type_id":          t.TypeID,
-		"rate_plan_id":     t.RatePlanID,
-		"entry_at":         t.EntryAt,
-		"status":           t.Status,
-		"subscription_id":  t.SubscriptionID,
-		"total_cents":      t.TotalCents,
-		"paid_cents":       t.PaidCents,
-	}); err != nil {
-		return apperr.From(err)
-	}
 	if err := tx.Commit(); err != nil {
 		return apperr.From(err)
 	}
@@ -89,31 +67,31 @@ func (r *mysqlRepo) Create(t *Ticket) error {
 	return nil
 }
 
-func (r *mysqlRepo) ByID(id string) (*Ticket, error) {
+func (r *sqlRepo) ByID(id string) (*Ticket, error) {
 	query := `SELECT id, site_id, zone_id, space_id, vehicle_id, subscription_id, plate_normalized, plate_raw, type_id, rate_plan_id, entry_at, exit_at, status, total_cents, paid_cents, is_lost, created_at, updated_at
               FROM tickets WHERE id = ? LIMIT 1`
 	return scanTicket(r.db.QueryRow(query, ids.StringToBin16(id)))
 }
 
-func (r *mysqlRepo) OpenBySpace(spaceID string) (*Ticket, error) {
+func (r *sqlRepo) OpenBySpace(spaceID string) (*Ticket, error) {
 	query := `SELECT id, site_id, zone_id, space_id, vehicle_id, subscription_id, plate_normalized, plate_raw, type_id, rate_plan_id, entry_at, exit_at, status, total_cents, paid_cents, is_lost, created_at, updated_at
               FROM tickets WHERE space_id = ? AND status = 'open' LIMIT 1`
 	return scanTicket(r.db.QueryRow(query, ids.StringToBin16(spaceID)))
 }
 
-func (r *mysqlRepo) OpenByPlateSite(plateNormalized, siteID string) (*Ticket, error) {
+func (r *sqlRepo) OpenByPlateSite(plateNormalized, siteID string) (*Ticket, error) {
 	query := `SELECT id, site_id, zone_id, space_id, vehicle_id, subscription_id, plate_normalized, plate_raw, type_id, rate_plan_id, entry_at, exit_at, status, total_cents, paid_cents, is_lost, created_at, updated_at
               FROM tickets WHERE plate_normalized = ? AND site_id = ? AND status = 'open' LIMIT 1`
 	return scanTicket(r.db.QueryRow(query, plateNormalized, ids.StringToBin16(siteID)))
 }
 
-func (r *mysqlRepo) LatestByPlateSite(plateNormalized, siteID string) (*Ticket, error) {
+func (r *sqlRepo) LatestByPlateSite(plateNormalized, siteID string) (*Ticket, error) {
 	query := `SELECT id, site_id, zone_id, space_id, vehicle_id, subscription_id, plate_normalized, plate_raw, type_id, rate_plan_id, entry_at, exit_at, status, total_cents, paid_cents, is_lost, created_at, updated_at
               FROM tickets WHERE plate_normalized = ? AND site_id = ? ORDER BY entry_at DESC LIMIT 1`
 	return scanTicket(r.db.QueryRow(query, plateNormalized, ids.StringToBin16(siteID)))
 }
 
-func (r *mysqlRepo) SettleTicketTx(ticketID string, exitAt time.Time, totalCents, paidCents int64, method string, cashierUserID string) error {
+func (r *sqlRepo) SettleTicketTx(ticketID string, exitAt time.Time, totalCents, paidCents int64, method string, cashierUserID string) error {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return apperr.From(err)
@@ -161,24 +139,11 @@ func (r *mysqlRepo) SettleTicketTx(ticketID string, exitAt time.Time, totalCents
 	if err != nil {
 		return apperr.From(err)
 	}
-	if err := r.outbox.EnqueueTx(tx, "ticket", ticketID, "ticket.settled", map[string]any{
-		"ticket_id":       ticketID,
-		"payment_id":      ids.Bin16ToString(paymentID),
-		"exit_at":         exitAt,
-		"total_cents":     totalCents,
-		"paid_cents":      paidCents,
-		"currency":        "CRC",
-		"method":          method,
-		"cashier_user_id": cashierUserID,
-		"status":          TicketPaid,
-	}); err != nil {
-		return apperr.From(err)
-	}
 
 	return tx.Commit()
 }
 
-func (r *mysqlRepo) CancelTicketTx(ticketID string, exitAt time.Time, actorUserID string) error {
+func (r *sqlRepo) CancelTicketTx(ticketID string, exitAt time.Time, actorUserID string) error {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return apperr.From(err)
@@ -215,43 +180,26 @@ func (r *mysqlRepo) CancelTicketTx(ticketID string, exitAt time.Time, actorUserI
 	if err != nil {
 		return apperr.From(err)
 	}
-	if err := r.outbox.EnqueueTx(tx, "ticket", ticketID, "ticket.cancelled", map[string]any{
-		"ticket_id":     ticketID,
-		"exit_at":       exitAt,
-		"actor_user_id": actorUserID,
-		"status":        TicketCancelled,
-	}); err != nil {
-		return apperr.From(err)
-	}
 
 	return tx.Commit()
 }
 
-func (r *mysqlRepo) Update(t *Ticket) error {
+func (r *sqlRepo) Update(t *Ticket) error {
 	query := `UPDATE tickets SET status=?, exit_at=?, total_cents=?, paid_cents=?, is_lost=?, updated_at=? WHERE id = ?`
 	_, err := r.db.Exec(query, t.Status, t.ExitAt, t.TotalCents, t.PaidCents, t.IsLost, time.Now().UTC(), ids.StringToBin16(t.ID))
 	return apperr.FromErr(err)
 }
 
-func (r *mysqlRepo) Close(id string, exitAt time.Time, totalCents, paidCents int64, status string) error {
+func (r *sqlRepo) Close(id string, exitAt time.Time, totalCents, paidCents int64, status string) error {
 	_, err := r.db.Exec(`UPDATE tickets SET exit_at=?, status=?, total_cents=?, paid_cents=?, updated_at=? WHERE id = ?`,
 		exitAt, status, totalCents, paidCents, time.Now().UTC(), ids.StringToBin16(id))
 	if err != nil {
 		return apperr.From(err)
 	}
-	if err := r.outbox.Enqueue("ticket", id, "ticket.closed", map[string]any{
-		"ticket_id":   id,
-		"exit_at":     exitAt,
-		"total_cents": totalCents,
-		"paid_cents":  paidCents,
-		"status":      status,
-	}); err != nil {
-		return apperr.From(err)
-	}
 	return nil
 }
 
-func (r *mysqlRepo) Events(ticketID string) ([]TicketEvent, error) {
+func (r *sqlRepo) Events(ticketID string) ([]TicketEvent, error) {
 	query := `SELECT id, ticket_id, event_type, actor_user_id, details, created_at
               FROM ticket_events WHERE ticket_id = ? ORDER BY created_at`
 	rows, err := r.db.Query(query, ids.StringToBin16(ticketID))
@@ -279,7 +227,7 @@ func (r *mysqlRepo) Events(ticketID string) ([]TicketEvent, error) {
 	return events, rows.Err()
 }
 
-func (r *mysqlRepo) CreateEvent(e *TicketEvent) error {
+func (r *sqlRepo) CreateEvent(e *TicketEvent) error {
 	var actorBin []byte
 	if e.ActorUserID != nil && *e.ActorUserID != "" {
 		actorBin = ids.StringToBin16(*e.ActorUserID)
@@ -290,7 +238,7 @@ func (r *mysqlRepo) CreateEvent(e *TicketEvent) error {
 	return apperr.FromErr(err)
 }
 
-func (r *mysqlRepo) ListBySite(siteID string, status string, limit, offset int) ([]*Ticket, error) {
+func (r *sqlRepo) ListBySite(siteID string, status string, limit, offset int) ([]*Ticket, error) {
 	query := `SELECT id, site_id, zone_id, space_id, vehicle_id, subscription_id, plate_normalized, plate_raw, type_id, rate_plan_id, entry_at, exit_at, status, total_cents, paid_cents, is_lost, created_at, updated_at
               FROM tickets WHERE site_id = ? AND (? = '' OR status = ?)
               ORDER BY entry_at DESC LIMIT ? OFFSET ?`
@@ -310,7 +258,7 @@ func (r *mysqlRepo) ListBySite(siteID string, status string, limit, offset int) 
 	return tickets, rows.Err()
 }
 
-func (r *mysqlRepo) CountBySite(siteID string, status string) (int, error) {
+func (r *sqlRepo) CountBySite(siteID string, status string) (int, error) {
 	query := `SELECT COUNT(*) FROM tickets WHERE site_id = ? AND (? = '' OR status = ?)`
 	var count int
 	if err := r.db.QueryRow(query, ids.StringToBin16(siteID), status, status).Scan(&count); err != nil {

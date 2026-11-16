@@ -1,7 +1,6 @@
 package parking
 
 import (
-	"fmt"
 	"log"
 
 	"parking-backend/internal/parking/pricing"
@@ -17,9 +16,6 @@ type Service struct {
 	spaceUpdater      SpaceStatusUpdater
 	spaceAllocator    SpaceAllocator
 	subscriptionCheck SubscriptionChecker
-	vehicleTypes      VehicleTypeResolver
-	defaultTypeCode   string
-	publisher         EventPublisher
 	now               clock.NowFunc
 }
 
@@ -55,34 +51,10 @@ func (s *Service) WithSubscriptionChecker(c SubscriptionChecker) *Service {
 	return s
 }
 
-// WithEventPublisher inyecta el publicador de eventos en tiempo real.
-func (s *Service) WithEventPublisher(p EventPublisher) *Service {
-	s.publisher = p
-	return s
-}
-
-// WithVehicleTypeResolver inyecta la resolución de tipos de vehículo.
-func (s *Service) WithVehicleTypeResolver(r VehicleTypeResolver) *Service {
-	s.vehicleTypes = r
-	return s
-}
-
-// WithDefaultVehicleType define el código de tipo usado en entradas LPR.
-func (s *Service) WithDefaultVehicleType(code string) *Service {
-	s.defaultTypeCode = code
-	return s
-}
-
 // WithClock permite inyectar un reloj determinista en pruebas.
 func (s *Service) WithClock(now clock.NowFunc) *Service {
 	s.now = now
 	return s
-}
-
-func (s *Service) publish(siteID, event string, payload map[string]any) {
-	if s.publisher != nil && siteID != "" {
-		s.publisher.Publish(siteID, event, payload)
-	}
 }
 
 // CreateTicket registra la entrada de un vehículo.
@@ -206,13 +178,6 @@ func (s *Service) CreateTicket(siteID, zoneID, spaceID, vehicleID, plateNormaliz
 		}
 	}
 
-	s.publish(siteID, "ticket.entered", map[string]any{
-		"ticket_id": t.ID,
-		"space_id":  spaceID,
-		"plate":     plateNormalized,
-		"status":    t.Status,
-	})
-
 	return t, nil
 }
 
@@ -321,15 +286,6 @@ func (s *Service) Settle(ticketID string, paidCents int64, method string, cashie
 		}
 	}
 
-	s.publish(t.SiteID, "ticket.exited", map[string]any{
-		"ticket_id":   t.ID,
-		"space_id":    t.SpaceID,
-		"plate":       t.PlateNormalized,
-		"total_cents": totalCents,
-		"paid_cents":  paidCents,
-		"status":      TicketPaid,
-	})
-
 	t.ExitAt = &exitAt
 	t.Status = TicketPaid
 	t.TotalCents = totalCents
@@ -361,188 +317,9 @@ func (s *Service) Cancel(ticketID string, actorUserID string) (*Ticket, error) {
 		}
 	}
 
-	s.publish(t.SiteID, "ticket.cancelled", map[string]any{
-		"ticket_id": t.ID,
-		"space_id":  t.SpaceID,
-		"plate":     t.PlateNormalized,
-		"status":    TicketCancelled,
-	})
-
 	t.Status = TicketCancelled
 	t.UpdatedAt = now
 	return t, nil
-}
-
-// AutoEnter registra automáticamente un ticket de entrada para una placa detectada por LPR.
-func (s *Service) AutoEnter(siteID, plateNormalized string) (string, error) {
-	if siteID == "" || plateNormalized == "" {
-		return "", apperr.New(apperr.ErrInvalidInput, "sitio y placa son requeridos", 400, nil)
-	}
-
-	existing, err := s.repo.OpenByPlateSite(plateNormalized, siteID)
-	if err != nil && !apperr.Is(err, apperr.ErrNotFound) {
-		return "", err
-	}
-	if existing != nil {
-		return existing.ID, nil
-	}
-
-	vehicleID := ""
-	if s.subscriptionCheck != nil {
-		sub, err := s.subscriptionCheck.ValidateByPlate(plateNormalized, siteID, s.now())
-		if err != nil && !apperr.Is(err, apperr.ErrNotFound) {
-			return "", err
-		}
-		if sub != nil {
-			vehicleID = sub.VehicleID
-		}
-	}
-
-	if s.vehicleTypes == nil || s.defaultTypeCode == "" {
-		return "", apperr.New(apperr.ErrInternal, "resolución de tipo de vehículo no configurada", 500, nil)
-	}
-	typeID, err := s.vehicleTypes.VehicleTypeIDByCode(s.defaultTypeCode)
-	if err != nil {
-		return "", apperr.New(apperr.ErrInternal, "no se pudo resolver el tipo de vehículo por defecto", 500, err)
-	}
-	t, err := s.CreateTicket(siteID, "", "", vehicleID, plateNormalized, plateNormalized, typeID, "")
-	if err != nil {
-		return "", err
-	}
-	return t.ID, nil
-}
-
-// AuthorizeEntry valida si una barrera puede permitir la entrada.
-// Implementa devices.Gate.
-func (s *Service) AuthorizeEntry(siteID, plateNormalized string) (bool, string, error) {
-	if siteID == "" || plateNormalized == "" {
-		return false, "sitio y placa son requeridos", nil
-	}
-	existing, err := s.repo.OpenByPlateSite(plateNormalized, siteID)
-	if err != nil && !apperr.Is(err, apperr.ErrNotFound) {
-		return false, "", err
-	}
-	if existing != nil {
-		return false, "el vehículo ya está dentro", nil
-	}
-	return true, "entrada autorizada", nil
-}
-
-// AuthorizeExit valida si una barrera puede permitir la salida.
-// Implementa devices.Gate.
-func (s *Service) AuthorizeExit(siteID, plateNormalized string) (bool, string, error) {
-	if siteID == "" || plateNormalized == "" {
-		return false, "sitio y placa son requeridos", nil
-	}
-
-	// 1. Validar si el vehículo tiene abono activo en esta sede
-	if s.subscriptionCheck != nil {
-		sub, err := s.subscriptionCheck.ValidateByPlate(plateNormalized, siteID, s.now())
-		if err != nil && !apperr.Is(err, apperr.ErrNotFound) {
-			return false, "", err
-		}
-		if err == nil && sub != nil && sub.Status == SubActive {
-			// Si tiene un ticket abierto, cerrarlo
-			if openTicket, err := s.repo.OpenByPlateSite(plateNormalized, siteID); err == nil && openTicket != nil {
-				now := s.now()
-				_ = s.repo.Close(openTicket.ID, now, 0, 0, TicketClosed)
-				if s.spaceUpdater != nil && openTicket.SpaceID != nil {
-					if err := s.spaceUpdater.UpdateStatus(*openTicket.SpaceID, "free"); err != nil {
-						log.Printf("parking: no se pudo liberar espacio %s al autorizar salida de abonado: %v", *openTicket.SpaceID, err)
-					}
-				}
-				s.publish(siteID, "ticket.exited", map[string]any{
-					"ticket_id": openTicket.ID,
-					"space_id":  openTicket.SpaceID,
-					"plate":     plateNormalized,
-					"status":    TicketClosed,
-				})
-			}
-			return true, "salida autorizada (abonado)", nil
-		}
-	}
-
-	// 2. Buscar el último ticket del vehículo en esta sede
-	latest, err := s.repo.LatestByPlateSite(plateNormalized, siteID)
-	if err != nil && !apperr.Is(err, apperr.ErrNotFound) {
-		return false, "", err
-	}
-	if latest == nil {
-		// Fallback: verificar si hay ticket abierto
-		openTicket, err := s.repo.OpenByPlateSite(plateNormalized, siteID)
-		if err != nil && !apperr.Is(err, apperr.ErrNotFound) {
-			return false, "", err
-		}
-		latest = openTicket
-	}
-	if latest == nil {
-		return false, "no hay ticket abierto para la placa", nil
-	}
-
-	// Si el ticket ya fue pagado previamente en caja
-	if latest.Status == TicketPaid {
-		now := s.now()
-		if err := s.repo.Close(latest.ID, now, latest.TotalCents, latest.PaidCents, TicketClosed); err != nil {
-			return false, "error al cerrar ticket", err
-		}
-		if s.spaceUpdater != nil && latest.SpaceID != nil {
-			if err := s.spaceUpdater.UpdateStatus(*latest.SpaceID, "free"); err != nil {
-				log.Printf("parking: no se pudo liberar espacio %s al cerrar ticket pagado %s: %v", *latest.SpaceID, latest.ID, err)
-			}
-		}
-		s.publish(siteID, "ticket.exited", map[string]any{
-			"ticket_id":   latest.ID,
-			"space_id":    latest.SpaceID,
-			"plate":       plateNormalized,
-			"total_cents": latest.TotalCents,
-			"paid_cents":  latest.PaidCents,
-			"status":      TicketClosed,
-		})
-		return true, "salida autorizada (ticket pagado)", nil
-	}
-
-	// Si el ticket está abierto, verificar si aplica salida gratuita (abono o periodo de gracia)
-	if latest.Status == TicketOpen {
-		if latest.SubscriptionID != nil && *latest.SubscriptionID != "" {
-			now := s.now()
-			_ = s.repo.Close(latest.ID, now, 0, 0, TicketClosed)
-			if s.spaceUpdater != nil && latest.SpaceID != nil {
-				if err := s.spaceUpdater.UpdateStatus(*latest.SpaceID, "free"); err != nil {
-					log.Printf("parking: no se pudo liberar espacio %s al autorizar salida de abonado: %v", *latest.SpaceID, err)
-				}
-			}
-			s.publish(siteID, "ticket.exited", map[string]any{
-				"ticket_id": latest.ID,
-				"space_id":  latest.SpaceID,
-				"plate":     plateNormalized,
-				"status":    TicketClosed,
-			})
-			return true, "salida autorizada (abonado)", nil
-		}
-
-		_, quote, err := s.Quote(latest.ID)
-		if err != nil {
-			return false, "", err
-		}
-		if quote.Amount == 0 {
-			now := s.now()
-			_ = s.repo.Close(latest.ID, now, 0, 0, TicketClosed)
-			if s.spaceUpdater != nil && latest.SpaceID != nil {
-				_ = s.spaceUpdater.UpdateStatus(*latest.SpaceID, "free")
-			}
-			s.publish(siteID, "ticket.exited", map[string]any{
-				"ticket_id": latest.ID,
-				"space_id":  latest.SpaceID,
-				"plate":     plateNormalized,
-				"status":    TicketClosed,
-			})
-			return true, "salida autorizada (periodo de gracia)", nil
-		}
-
-		return false, fmt.Sprintf("ticket pendiente de pago (%d centavos)", quote.Amount), nil
-	}
-
-	return false, "el vehículo no tiene ticket activo en el parqueo", nil
 }
 
 // SubActive es el estado activo de suscripción.

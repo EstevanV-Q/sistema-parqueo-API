@@ -8,25 +8,17 @@ import (
 
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
-	"parking-backend/internal/platform/outbox"
 )
 
-type mysqlRepo struct {
-	db     *sql.DB
-	outbox *outbox.Store
+type sqlRepo struct {
+	db *sql.DB
 }
 
-// NewMySQLRepository crea el repositorio de auditoría.
-func NewMySQLRepository(db *sql.DB) Repository {
-	return &mysqlRepo{db: db}
+func NewRepository(db *sql.DB) Repository {
+	return &sqlRepo{db: db}
 }
 
-// NewSQLiteRepository usa el mismo contrato y esquema lógico que MySQL.
-func NewSQLiteRepository(db *sql.DB) Repository {
-	return &mysqlRepo{db: db, outbox: outbox.NewStore(db)}
-}
-
-func (r *mysqlRepo) Insert(e *Entry) error {
+func (r *sqlRepo) Insert(e *Entry) error {
 	idBin := ids.UUIDv7()
 	if e.ID == "" {
 		e.ID = ids.Bin16ToString(idBin)
@@ -70,21 +62,6 @@ func (r *mysqlRepo) Insert(e *Entry) error {
 	if err != nil {
 		return apperr.From(err)
 	}
-	if err := r.outbox.EnqueueTx(tx, "audit", e.ID, "audit.created", map[string]any{
-		"audit_id":    e.ID,
-		"user_id":     e.UserID,
-		"site_id":     e.SiteID,
-		"action":      e.Action,
-		"entity_type": e.EntityType,
-		"entity_id":   e.EntityID,
-		"old_values":  string(oldJSON),
-		"new_values":  string(newJSON),
-		"ip_address":  e.IPAddress,
-		"user_agent":  e.UserAgent,
-		"created_at":  now,
-	}); err != nil {
-		return apperr.From(err)
-	}
 	if err := tx.Commit(); err != nil {
 		return apperr.From(err)
 	}
@@ -99,7 +76,7 @@ func marshalNullable(v map[string]any) ([]byte, error) {
 	return json.Marshal(v)
 }
 
-func (r *mysqlRepo) List(f Filter, limit, offset int) ([]*Entry, error) {
+func (r *sqlRepo) List(f Filter, limit, offset int) ([]*Entry, error) {
 	where, args := buildWhere(f)
 	query := `SELECT id, user_id, site_id, action, entity_type, entity_id, old_values, new_values, ip_address, user_agent, created_at
 	          FROM audit_log ` + where + ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
@@ -122,7 +99,7 @@ func (r *mysqlRepo) List(f Filter, limit, offset int) ([]*Entry, error) {
 	return entries, rows.Err()
 }
 
-func (r *mysqlRepo) Count(f Filter) (int, error) {
+func (r *sqlRepo) Count(f Filter) (int, error) {
 	where, args := buildWhere(f)
 	var total int
 	if err := r.db.QueryRow(`SELECT COUNT(*) FROM audit_log `+where, args...).Scan(&total); err != nil {

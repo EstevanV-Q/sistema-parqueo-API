@@ -6,24 +6,17 @@ import (
 
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
-	"parking-backend/internal/platform/outbox"
 )
 
-type mysqlRepo struct {
-	db     *sql.DB
-	outbox *outbox.Store
+type sqlRepo struct {
+	db *sql.DB
 }
 
-func NewMySQLRepository(db *sql.DB) Repository {
-	return &mysqlRepo{db: db}
+func NewRepository(db *sql.DB) Repository {
+	return &sqlRepo{db: db}
 }
 
-// NewSQLiteRepository usa el mismo contrato y esquema lógico que MySQL.
-func NewSQLiteRepository(db *sql.DB) Repository {
-	return &mysqlRepo{db: db, outbox: outbox.NewStore(db)}
-}
-
-func (r *mysqlRepo) Create(v *Vehicle) error {
+func (r *sqlRepo) Create(v *Vehicle) error {
 	idBin := ids.UUIDv7()
 	v.ID = ids.Bin16ToString(idBin)
 	query := `INSERT INTO vehicles (id, plate_normalized, plate_raw, type_id, customer_id, is_active, created_at)
@@ -43,16 +36,6 @@ func (r *mysqlRepo) Create(v *Vehicle) error {
 	if err != nil {
 		return apperr.From(err)
 	}
-	if err := r.outbox.EnqueueTx(tx, "vehicle", v.ID, "vehicle.created", map[string]any{
-		"vehicle_id":       v.ID,
-		"plate_normalized": v.PlateNormalized,
-		"plate_raw":        v.PlateRaw,
-		"type_id":          v.TypeID,
-		"customer_id":      v.CustomerID,
-		"is_active":        v.IsActive,
-	}); err != nil {
-		return apperr.From(err)
-	}
 	if err := tx.Commit(); err != nil {
 		return apperr.From(err)
 	}
@@ -60,19 +43,19 @@ func (r *mysqlRepo) Create(v *Vehicle) error {
 	return nil
 }
 
-func (r *mysqlRepo) ByID(id string) (*Vehicle, error) {
+func (r *sqlRepo) ByID(id string) (*Vehicle, error) {
 	query := `SELECT id, plate_normalized, plate_raw, type_id, customer_id, is_active, created_at
               FROM vehicles WHERE id = ? LIMIT 1`
 	return scanVehicle(r.db.QueryRow(query, ids.StringToBin16(id)))
 }
 
-func (r *mysqlRepo) ByPlate(plateNormalized string) (*Vehicle, error) {
+func (r *sqlRepo) ByPlate(plateNormalized string) (*Vehicle, error) {
 	query := `SELECT id, plate_normalized, plate_raw, type_id, customer_id, is_active, created_at
               FROM vehicles WHERE plate_normalized = ? LIMIT 1`
 	return scanVehicle(r.db.QueryRow(query, plateNormalized))
 }
 
-func (r *mysqlRepo) ListByCustomer(customerID string) ([]*Vehicle, error) {
+func (r *sqlRepo) ListByCustomer(customerID string) ([]*Vehicle, error) {
 	query := `SELECT id, plate_normalized, plate_raw, type_id, customer_id, is_active, created_at
               FROM vehicles WHERE customer_id = ? ORDER BY plate_normalized`
 	rows, err := r.db.Query(query, ids.StringToBin16(customerID))
@@ -91,7 +74,7 @@ func (r *mysqlRepo) ListByCustomer(customerID string) ([]*Vehicle, error) {
 	return vehicles, rows.Err()
 }
 
-func (r *mysqlRepo) List(limit, offset int) ([]*Vehicle, error) {
+func (r *sqlRepo) List(limit, offset int) ([]*Vehicle, error) {
 	query := `SELECT id, plate_normalized, plate_raw, type_id, customer_id, is_active, created_at
 	          FROM vehicles ORDER BY plate_normalized LIMIT ? OFFSET ?`
 	rows, err := r.db.Query(query, limit, offset)
@@ -111,7 +94,7 @@ func (r *mysqlRepo) List(limit, offset int) ([]*Vehicle, error) {
 	return vehicles, rows.Err()
 }
 
-func (r *mysqlRepo) Update(v *Vehicle) error {
+func (r *sqlRepo) Update(v *Vehicle) error {
 	query := `UPDATE vehicles SET plate_normalized=?, plate_raw=?, type_id=?, customer_id=?, is_active=? WHERE id = ?`
 	var customerID []byte
 	if v.CustomerID != nil && *v.CustomerID != "" {

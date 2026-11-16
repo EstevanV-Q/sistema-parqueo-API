@@ -5,11 +5,6 @@ variables:
     enabled: true
     secret: false
     description: "URL base de la API"
-  - name: "wsUrl"
-    value: "ws://localhost:8080"
-    enabled: true
-    secret: false
-    description: "URL base para WebSocket"
   - name: "adminUser"
     value: "admin"
     enabled: true
@@ -40,11 +35,6 @@ variables:
     enabled: true
     secret: true
     description: "Contraseña auditor definida en SEED_AUDITOR_PASSWORD"
-  - name: "deviceApiKey"
-    value: "CAMBIAR_SEGUN_SEED_DEVICE_KEY"
-    enabled: true
-    secret: true
-    description: "X-Device-Key definida en SEED_DEVICE_API_KEY"
   - name: "accessToken"
     value: ""
     enabled: true
@@ -120,11 +110,6 @@ variables:
     enabled: true
     secret: false
     description: "Se captura en 07_payments/01_crear_pago.yml"
-  - name: "deviceId"
-    value: ""
-    enabled: true
-    secret: false
-    description: "Se captura en 09_devices/01_registrar_dispositivo.yml"
   - name: "testSiteId"
     value: ""
     enabled: true
@@ -205,11 +190,6 @@ variables:
     enabled: true
     secret: false
     description: "Primer pago del listado"
-  - name: "firstDeviceId"
-    value: ""
-    enabled: true
-    secret: false
-    description: "Primer dispositivo del listado"
   - name: "newUserId"
     value: ""
     enabled: true

@@ -8,20 +8,15 @@ import (
 	"parking-backend/internal/platform/ids"
 )
 
-type mysqlRepo struct {
+type sqlRepo struct {
 	db *sql.DB
 }
 
-func NewMySQLRepository(db *sql.DB) Repository {
-	return &mysqlRepo{db: db}
+func NewRepository(db *sql.DB) Repository {
+	return &sqlRepo{db: db}
 }
 
-// NewSQLiteRepository usa el mismo contrato y esquema lógico que MySQL.
-func NewSQLiteRepository(db *sql.DB) Repository {
-	return &mysqlRepo{db: db}
-}
-
-func (r *mysqlRepo) Ocupacion(siteID string) (*Ocupacion, error) {
+func (r *sqlRepo) Ocupacion(siteID string) (*Ocupacion, error) {
 	var siteName string
 	if err := r.db.QueryRow(`SELECT name FROM sites WHERE id = ? LIMIT 1`, ids.StringToBin16(siteID)).Scan(&siteName); err != nil {
 		if err == sql.ErrNoRows {
@@ -60,7 +55,7 @@ func (r *mysqlRepo) Ocupacion(siteID string) (*Ocupacion, error) {
 	}, nil
 }
 
-func (r *mysqlRepo) Ingresos(siteID string, from, to string) ([]IngresoDiario, error) {
+func (r *sqlRepo) Ingresos(siteID string, from, to string) ([]IngresoDiario, error) {
 	query := `
 		SELECT DATE(p.created_at) AS fecha, COUNT(*), COALESCE(SUM(p.amount_cents), 0)
 		FROM payments p
@@ -98,7 +93,7 @@ func (r *mysqlRepo) Ingresos(siteID string, from, to string) ([]IngresoDiario, e
 	return ingresos, rows.Err()
 }
 
-func (r *mysqlRepo) CajaDiaria(siteID string, date string) (*CajaResumen, error) {
+func (r *sqlRepo) CajaDiaria(siteID string, date string) (*CajaResumen, error) {
 	query := `
 		SELECT p.method, COUNT(*), COALESCE(SUM(p.amount_cents), 0)
 		FROM payments p

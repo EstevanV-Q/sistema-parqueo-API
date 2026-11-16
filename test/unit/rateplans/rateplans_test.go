@@ -61,11 +61,11 @@ func newRatePlanService() *rateplans.Service {
 
 func TestCreateRatePlan_OK(t *testing.T) {
 	s := newRatePlanService()
-	rp, err := s.Create("site-1", "Tarifa Hora", "COP", 15, 15, 2000, 1000, 20000, 5000, nil)
+	rp, err := s.Create("site-1", "Tarifa Hora", "CRC", 15, 15, 2000, 1000, 20000, 5000, nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if rp.Name != "Tarifa Hora" || rp.Currency != "COP" || !rp.IsActive {
+	if rp.Name != "Tarifa Hora" || rp.Currency != "CRC" || !rp.IsActive {
 		t.Fatalf("datos inesperados: %+v", rp)
 	}
 }
@@ -76,8 +76,8 @@ func TestCreateRatePlan_DefaultCurrency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if rp.Currency != "COP" {
-		t.Fatalf("moneda por defecto debería ser COP, obtuvo %s", rp.Currency)
+	if rp.Currency != "CRC" {
+		t.Fatalf("moneda por defecto debería ser CRC, obtuvo %s", rp.Currency)
 	}
 }
 

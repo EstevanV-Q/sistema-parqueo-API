@@ -1,11 +1,8 @@
-// Package app es el composition root del backend: construye repositorios,
-// servicios, handlers, middlewares y el router HTTP.
+// Package app arma la aplicación: repositorios, servicios, handlers y router.
 package app
 
 import (
-	"context"
 	"database/sql"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -19,222 +16,105 @@ import (
 	"parking-backend/internal/catalog"
 	"parking-backend/internal/config"
 	"parking-backend/internal/customers"
-	"parking-backend/internal/devices"
 	"parking-backend/internal/parking"
 	"parking-backend/internal/platform/db"
 	"parking-backend/internal/platform/httpserver"
-	platmiddleware "parking-backend/internal/platform/middleware"
-	"parking-backend/internal/platform/outbox"
+	mw "parking-backend/internal/platform/middleware"
 	"parking-backend/internal/rateplans"
-	"parking-backend/internal/realtime"
 	"parking-backend/internal/reporting"
 	"parking-backend/internal/subscriptions"
-	syncer "parking-backend/internal/sync"
 	"parking-backend/internal/vehicles"
+	"parking-backend/web"
 )
 
 // App agrupa las dependencias de larga vida del proceso.
 type App struct {
-	Config     *config.Config
-	DB         *sql.DB
-	Hub        *realtime.Hub
-	Router     http.Handler
-	syncCancel context.CancelFunc
+	Config *config.Config
+	DB     *sql.DB
+	Router http.Handler
 }
 
-// New construye la aplicación completa. El llamante es responsable de cerrar
-// la base de datos con Close.
+// handlers agrupa los handlers HTTP para pasarlos al router.
+type handlers struct {
+	auth          *auth.Handler
+	parking       *parking.Handler
+	billing       *billing.Handler
+	subscriptions *subscriptions.Handler
+	vehicles      *vehicles.Handler
+	customers     *customers.Handler
+	rateplans     *rateplans.Handler
+	catalog       *catalog.Handler
+	reporting     *reporting.Handler
+	audit         *audit.Handler
+}
+
+// New abre la base de datos y construye la aplicación. Cerrar con Close.
 func New(cfg *config.Config) (*App, error) {
 	database, err := db.Open(cfg)
 	if err != nil {
 		return nil, err
 	}
-	platmiddleware.SetAllowedOrigins(cfg.CORSAllowedOrigins)
+	return NewWithDB(cfg, database), nil
+}
 
-	// --- Auditoría ---
-	auditRepo := audit.NewMySQLRepository(database)
-	if cfg.IsSQLite() {
-		auditRepo = audit.NewSQLiteRepository(database)
-	}
-	auditSvc := audit.NewService(auditRepo)
-	auditHandler := audit.NewHandler(auditSvc)
+// NewWithDB construye la aplicación sobre una conexión ya abierta.
+func NewWithDB(cfg *config.Config, database *sql.DB) *App {
+	mw.SetAllowedOrigins(cfg.CORSAllowedOrigins)
 
-	// --- Auth ---
-	authRepo := auth.NewMySQLRepository(database)
-	if cfg.IsSQLite() {
-		authRepo = auth.NewSQLiteRepository(database)
-	}
-	authSvc := auth.NewService(authRepo, cfg)
-	authHandler := auth.NewHandler(authSvc)
+	auditSvc := audit.NewService(audit.NewRepository(database))
+	authSvc := auth.NewService(auth.NewRepository(database), cfg)
+	catalogSvc := catalog.NewService(
+		catalog.NewSiteRepo(database),
+		catalog.NewZoneRepo(database),
+		catalog.NewSpaceRepo(database),
+		catalog.NewVehicleTypeRepo(database),
+	)
+	rateplansSvc := rateplans.NewService(rateplans.NewRepository(database))
+	subscriptionsSvc := subscriptions.NewService(subscriptions.NewRepository(database))
+	billingSvc := billing.NewService(billing.NewRepository(database))
 
-	// --- Catálogo ---
-	siteRepo := catalog.NewMySQLSiteRepo(database)
-	zoneRepo := catalog.NewMySQLZoneRepo(database)
-	spaceRepo := catalog.NewMySQLSpaceRepo(database)
-	vehicleTypeRepo := catalog.NewMySQLVehicleTypeRepo(database)
-	if cfg.IsSQLite() {
-		siteRepo = catalog.NewSQLiteSiteRepo(database)
-		zoneRepo = catalog.NewSQLiteZoneRepo(database)
-		spaceRepo = catalog.NewSQLiteSpaceRepo(database)
-		vehicleTypeRepo = catalog.NewSQLiteVehicleTypeRepo(database)
-	}
-	catalogSvc := catalog.NewService(siteRepo, zoneRepo, spaceRepo, vehicleTypeRepo)
-	catalogHandler := catalog.NewHandler(catalogSvc)
-
-	// --- Vehículos y clientes ---
-	vehiclesRepo := vehicles.NewMySQLRepository(database)
-	customersRepo := customers.NewMySQLRepository(database)
-	if cfg.IsSQLite() {
-		vehiclesRepo = vehicles.NewSQLiteRepository(database)
-		customersRepo = customers.NewSQLiteRepository(database)
-	}
-	vehiclesSvc := vehicles.NewService(vehiclesRepo)
-	vehiclesHandler := vehicles.NewHandler(vehiclesSvc)
-
-	customersSvc := customers.NewService(customersRepo)
-	customersHandler := customers.NewHandler(customersSvc)
-
-	// --- Tarifas ---
-	rateplansRepo := rateplans.NewMySQLRepository(database)
-	if cfg.IsSQLite() {
-		rateplansRepo = rateplans.NewSQLiteRepository(database)
-	}
-	rateplansSvc := rateplans.NewService(rateplansRepo)
-	rateplansHandler := rateplans.NewHandler(rateplansSvc)
-
-	// --- Pagos ---
-	billingRepo := billing.NewMySQLRepository(database)
-	if cfg.IsSQLite() {
-		billingRepo = billing.NewSQLiteRepository(database)
-	}
-	billingSvc := billing.NewService(billingRepo)
-
-	// --- Abonados ---
-	subscriptionsRepo := subscriptions.NewMySQLRepository(database)
-	if cfg.IsSQLite() {
-		subscriptionsRepo = subscriptions.NewSQLiteRepository(database)
-	}
-	subscriptionsSvc := subscriptions.NewService(subscriptionsRepo)
-	subsHandler := subscriptions.NewHandler(subscriptionsSvc, auditSvc)
-
-	// --- Tiempo real ---
-	rtHub := realtime.NewHub()
-	go rtHub.Run()
-	rtPublisher := realtime.NewPublisher(rtHub)
-	rtHandler := realtime.NewHandler(rtHub, cfg)
-
-	// --- Parking (depende de tarifas, catálogo, abonados, pagos y realtime) ---
-	parkingRepo := parking.NewMySQLRepository(database)
-	if cfg.IsSQLite() {
-		parkingRepo = parking.NewSQLiteRepository(database)
-	}
-	parkingSvc := parking.NewService(parkingRepo).
+	parkingSvc := parking.NewService(parking.NewRepository(database, !cfg.IsSQLite())).
 		WithRatePlanReader(rateplansSvc).
 		WithSpaceUpdater(catalogSvc).
 		WithSpaceAllocator(spaceAllocator{catalog: catalogSvc}).
-		WithSubscriptionChecker(subscriptionsSvc).
-		WithVehicleTypeResolver(catalogSvc).
-		WithDefaultVehicleType(cfg.DefaultVehicleTypeCode).
-		WithEventPublisher(rtPublisher)
-	parkingHandler := parking.NewHandler(parkingSvc, auditSvc)
+		WithSubscriptionChecker(subscriptionsSvc)
 
-	// billingHandler se crea aquí porque necesita parkingSvc y subscriptionsSvc como SiteResolver.
-	billingHandler := billing.NewHandler(billingSvc, auditSvc, &siteResolver{parking: parkingSvc, subs: subscriptionsSvc})
-
-	// --- Dispositivos (consulta a parking y publica eventos) ---
-	devicesRepo := devices.NewMySQLRepository(database)
-	if cfg.IsSQLite() {
-		devicesRepo = devices.NewSQLiteRepository(database)
-	}
-	devicesSvc := devices.NewService(devicesRepo).
-		WithGate(parkingSvc).
-		WithTicketCreator(parkingSvc).
-		WithPublisher(rtPublisher)
-	devicesHandler := devices.NewHandler(devicesSvc)
-
-	// --- Reportes ---
-	reportingRepo := reporting.NewMySQLRepository(database)
-	if cfg.IsSQLite() {
-		reportingRepo = reporting.NewSQLiteRepository(database)
-	}
-	reportingSvc := reporting.NewService(reportingRepo)
-	reportingHandler := reporting.NewHandler(reportingSvc)
-
-	// --- Router ---
-	authMW := platmiddleware.NewAuthMiddleware(cfg)
-	var syncIngest *syncer.Handler
-	if !cfg.IsSQLite() && cfg.SyncToken != "" {
-		syncIngest = syncer.NewHandler(database, cfg.SyncToken)
-	}
-	r := buildRouter(database, authMW,
-		authHandler, parkingHandler, billingHandler, subsHandler,
-		vehiclesHandler, customersHandler, rateplansHandler,
-		catalogHandler, devicesHandler, reportingHandler, auditHandler,
-		rtHandler, syncIngest,
-	)
-
-	var syncCancel context.CancelFunc
-	if cfg.IsSQLite() && cfg.SyncURL != "" {
-		worker := syncer.NewWorker(
-			outbox.NewStore(database),
-			&syncer.HTTPSender{URL: cfg.SyncURL, Token: cfg.SyncToken, SiteID: cfg.EdgeSiteID},
-			8,
-			2*time.Second,
-		)
-		var syncCtx context.Context
-		syncCtx, syncCancel = context.WithCancel(context.Background())
-		go func() {
-			if err := worker.Run(syncCtx, cfg.SyncInterval); err != nil {
-				slog.Error("worker de sincronización detenido", "error", err)
-			}
-		}()
+	h := handlers{
+		auth:          auth.NewHandler(authSvc),
+		parking:       parking.NewHandler(parkingSvc, auditSvc),
+		billing:       billing.NewHandler(billingSvc, auditSvc, &siteResolver{parking: parkingSvc, subs: subscriptionsSvc}),
+		subscriptions: subscriptions.NewHandler(subscriptionsSvc, auditSvc),
+		vehicles:      vehicles.NewHandler(vehicles.NewService(vehicles.NewRepository(database))),
+		customers:     customers.NewHandler(customers.NewService(customers.NewRepository(database))),
+		rateplans:     rateplans.NewHandler(rateplansSvc),
+		catalog:       catalog.NewHandler(catalogSvc),
+		reporting:     reporting.NewHandler(reporting.NewService(reporting.NewRepository(database))),
+		audit:         audit.NewHandler(auditSvc),
 	}
 
 	return &App{
-		Config:     cfg,
-		DB:         database,
-		Hub:        rtHub,
-		Router:     r,
-		syncCancel: syncCancel,
-	}, nil
+		Config: cfg,
+		DB:     database,
+		Router: buildRouter(database, mw.NewAuthMiddleware(cfg), h),
+	}
 }
 
-// Close libera recursos.
+// Close libera la conexión a la base de datos.
 func (a *App) Close() error {
-	if a.syncCancel != nil {
-		a.syncCancel()
-	}
 	if a.DB != nil {
 		return a.DB.Close()
 	}
 	return nil
 }
 
-func buildRouter(
-	database *sql.DB,
-	authMW *platmiddleware.AuthMiddleware,
-	authHandler *auth.Handler,
-	parkingHandler *parking.Handler,
-	billingHandler *billing.Handler,
-	subsHandler *subscriptions.Handler,
-	vehiclesHandler *vehicles.Handler,
-	customersHandler *customers.Handler,
-	rateplansHandler *rateplans.Handler,
-	catalogHandler *catalog.Handler,
-	devicesHandler *devices.Handler,
-	reportingHandler *reporting.Handler,
-	auditHandler *audit.Handler,
-	rtHandler *realtime.Handler,
-	syncIngest *syncer.Handler,
-) http.Handler {
+func buildRouter(database *sql.DB, authMW *mw.AuthMiddleware, h handlers) http.Handler {
 	r := chi.NewRouter()
-
 	r.Use(chimiddleware.RequestID)
-	r.Use(platmiddleware.RequestIDHeader)
+	r.Use(mw.RequestIDHeader)
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.Logger)
-	r.Use(platmiddleware.RequestInfo)
-	r.Use(platmiddleware.CORS)
+	r.Use(mw.RequestInfo)
+	r.Use(mw.CORS)
 
 	// Salud
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -242,14 +122,10 @@ func buildRouter(
 	})
 	r.Get("/readyz", func(w http.ResponseWriter, req *http.Request) {
 		if err := database.PingContext(req.Context()); err != nil {
-			httpserver.JSON(w, http.StatusServiceUnavailable, map[string]string{
-				"status": "error", "message": "database unavailable",
-			})
+			httpserver.JSON(w, http.StatusServiceUnavailable, map[string]string{"status": "error", "message": "database unavailable"})
 			return
 		}
-		httpserver.JSON(w, http.StatusOK, map[string]string{
-			"status": "ready", "database": "connected",
-		})
+		httpserver.JSON(w, http.StatusOK, map[string]string{"status": "ready", "database": "connected"})
 	})
 
 	// Documentación
@@ -263,149 +139,118 @@ func buildRouter(
 	})
 
 	r.Route("/api/v1", func(r chi.Router) {
-		// ---------- Público ----------
+		// Público
 		r.Route("/auth", func(r chi.Router) {
-			r.With(platmiddleware.RateLimit(10, time.Minute)).Post("/login", authHandler.Login)
-			r.With(platmiddleware.RateLimit(30, time.Minute)).Post("/refresh", authHandler.RefreshHandler)
-			r.Post("/logout", authHandler.LogoutHandler)
-
-			r.With(authMW.Handler).Get("/me", authHandler.MeHandler)
-			r.With(authMW.Handler).Post("/ws-ticket", authHandler.WSTicketHandler)
-			r.With(authMW.Handler, platmiddleware.RequireRole("admin")).Post("/register", authHandler.Register)
+			r.With(mw.RateLimit(10, time.Minute)).Post("/login", h.auth.Login)
+			r.With(mw.RateLimit(30, time.Minute)).Post("/refresh", h.auth.RefreshHandler)
+			r.Post("/logout", h.auth.LogoutHandler)
+			r.With(authMW.Handler).Get("/me", h.auth.MeHandler)
+			r.With(authMW.Handler, mw.RequireRole("admin")).Post("/register", h.auth.Register)
 		})
 
-		// Los dispositivos se autentican con X-Device-Key, no con JWT.
-		r.With(platmiddleware.RateLimit(240, time.Minute)).Post("/devices/events", devicesHandler.ProcessEvent)
-
-		// WebSocket de ocupación (solo lectura, filtrado por sede).
-		r.Get("/ws/occupancy", rtHandler.OccupancyWS)
-
-		// Ingesta idempotente de eventos de las APIs de borde.
-		if syncIngest != nil {
-			r.With(platmiddleware.RateLimit(600, time.Minute)).Post("/sync/events", syncIngest.Ingest)
-		}
-
-		// ---------- Protegido por JWT ----------
+		// Protegido por JWT
 		r.Group(func(r chi.Router) {
 			r.Use(authMW.Handler)
+			staff := mw.RequireRole("admin", "operator")
+			admin := mw.RequireRole("admin")
+			auditors := mw.RequireRole("admin", "auditor")
 
-			// Tickets
 			r.Route("/tickets", func(r chi.Router) {
-				r.With(platmiddleware.RequireRole("admin", "operator")).Post("/", parkingHandler.Enter)
-				r.Get("/", parkingHandler.List)
-				r.Get("/{id}", parkingHandler.Get)
-				r.Get("/{id}/events", parkingHandler.Events)
-				r.Post("/{id}/quote", parkingHandler.Quote)
-				r.With(platmiddleware.RequireRole("admin", "operator")).Post("/{id}/settle", parkingHandler.Settle)
-				r.With(platmiddleware.RequireRole("admin", "operator")).Post("/{id}/cancel", parkingHandler.Cancel)
+				r.With(staff).Post("/", h.parking.Enter)
+				r.Get("/", h.parking.List)
+				r.Get("/{id}", h.parking.Get)
+				r.Get("/{id}/events", h.parking.Events)
+				r.Post("/{id}/quote", h.parking.Quote)
+				r.With(staff).Post("/{id}/settle", h.parking.Settle)
+				r.With(staff).Post("/{id}/cancel", h.parking.Cancel)
 			})
 
-			// Pagos
 			r.Route("/payments", func(r chi.Router) {
-				r.With(platmiddleware.RequireRole("admin", "operator")).Post("/", billingHandler.CreatePayment)
-				r.Get("/", billingHandler.ListPayments)
-				r.Get("/{id}", billingHandler.GetPayment)
-				r.With(platmiddleware.RequireRole("admin", "operator")).Post("/{id}/refund", billingHandler.RefundPayment)
+				r.With(staff).Post("/", h.billing.CreatePayment)
+				r.Get("/", h.billing.ListPayments)
+				r.Get("/{id}", h.billing.GetPayment)
+				r.With(staff).Post("/{id}/refund", h.billing.RefundPayment)
 			})
 
-			// Abonados
 			r.Route("/subscriptions", func(r chi.Router) {
-				r.With(platmiddleware.RequireRole("admin", "operator")).Post("/", subsHandler.CreateSubscription)
-				r.Get("/", subsHandler.ListSubscriptions)
-				r.Get("/validate", subsHandler.Validate)
-				r.Get("/{id}", subsHandler.GetSubscription)
-				r.With(platmiddleware.RequireRole("admin", "operator")).Delete("/{id}", subsHandler.CancelSubscription)
+				r.With(staff).Post("/", h.subscriptions.CreateSubscription)
+				r.Get("/", h.subscriptions.ListSubscriptions)
+				r.Get("/validate", h.subscriptions.Validate)
+				r.Get("/{id}", h.subscriptions.GetSubscription)
+				r.With(staff).Delete("/{id}", h.subscriptions.CancelSubscription)
 			})
 
-			// Vehículos
 			r.Route("/vehicles", func(r chi.Router) {
-				r.With(platmiddleware.RequireRole("admin", "operator")).Post("/", vehiclesHandler.CreateVehicle)
-				r.Get("/", vehiclesHandler.ListVehicles)
-				r.Get("/plate/{plate}", vehiclesHandler.GetVehicleByPlate)
-				r.Get("/{id}", vehiclesHandler.GetVehicle)
+				r.With(staff).Post("/", h.vehicles.CreateVehicle)
+				r.Get("/", h.vehicles.ListVehicles)
+				r.Get("/plate/{plate}", h.vehicles.GetVehicleByPlate)
+				r.Get("/{id}", h.vehicles.GetVehicle)
 			})
 
-			// Clientes
 			r.Route("/customers", func(r chi.Router) {
-				r.With(platmiddleware.RequireRole("admin", "operator")).Post("/", customersHandler.CreateCustomer)
-				r.With(platmiddleware.RequireRole("admin", "operator")).Get("/", customersHandler.ListCustomers)
-				r.With(platmiddleware.RequireRole("admin", "operator")).Get("/{id}", customersHandler.GetCustomer)
+				r.Use(staff)
+				r.Post("/", h.customers.CreateCustomer)
+				r.Get("/", h.customers.ListCustomers)
+				r.Get("/{id}", h.customers.GetCustomer)
 			})
 
-			// Tarifas
 			r.Route("/rate-plans", func(r chi.Router) {
-				r.With(platmiddleware.RequireRole("admin")).Post("/", rateplansHandler.CreateRatePlan)
-				r.Get("/", rateplansHandler.ListRatePlans)
-				r.Get("/{id}", rateplansHandler.GetRatePlan)
-				r.With(platmiddleware.RequireRole("admin")).Delete("/{id}", rateplansHandler.DeleteRatePlan)
+				r.With(admin).Post("/", h.rateplans.CreateRatePlan)
+				r.Get("/", h.rateplans.ListRatePlans)
+				r.Get("/{id}", h.rateplans.GetRatePlan)
+				r.With(admin).Delete("/{id}", h.rateplans.DeleteRatePlan)
 			})
 
-			// Dispositivos (administración)
-			r.Route("/devices", func(r chi.Router) {
-				r.With(platmiddleware.RequireRole("admin")).Post("/", devicesHandler.RegisterDevice)
-				r.Get("/", devicesHandler.ListDevices)
-			})
-
-			// Reportes
 			r.Route("/reports", func(r chi.Router) {
-				r.Get("/occupancy", reportingHandler.Ocupacion)
-				r.With(platmiddleware.RequireRole("admin", "auditor")).Get("/revenue", reportingHandler.Ingresos)
-				r.With(platmiddleware.RequireRole("admin", "auditor")).Get("/cash-daily", reportingHandler.CajaDiaria)
+				r.Get("/occupancy", h.reporting.Ocupacion)
+				r.With(auditors).Get("/revenue", h.reporting.Ingresos)
+				r.With(auditors).Get("/cash-daily", h.reporting.CajaDiaria)
 			})
 
-			// Auditoría
-			r.With(platmiddleware.RequireRole("admin", "auditor")).Get("/audit", auditHandler.List)
+			r.With(auditors).Get("/audit", h.audit.List)
 
-			// Catálogo
 			r.Route("/catalog", func(r chi.Router) {
-				r.Get("/sites", catalogHandler.ListSites)
-				r.Get("/sites/{id}", catalogHandler.GetSite)
-				r.Get("/zones", catalogHandler.ListZones)
-				r.Get("/spaces", catalogHandler.ListSpaces)
-				r.Get("/vehicle-types", catalogHandler.ListVehicleTypes)
+				r.Get("/sites", h.catalog.ListSites)
+				r.Get("/sites/{id}", h.catalog.GetSite)
+				r.Get("/zones", h.catalog.ListZones)
+				r.Get("/spaces", h.catalog.ListSpaces)
+				r.Get("/vehicle-types", h.catalog.ListVehicleTypes)
 
 				r.Group(func(r chi.Router) {
-					r.Use(platmiddleware.RequireRole("admin"))
-					r.Post("/sites", catalogHandler.CreateSite)
-					r.Put("/sites/{id}", catalogHandler.UpdateSite)
-					r.Delete("/sites/{id}", catalogHandler.DeleteSite)
-
-					r.Post("/zones", catalogHandler.CreateZone)
-					r.Put("/zones/{id}", catalogHandler.UpdateZone)
-					r.Delete("/zones/{id}", catalogHandler.DeleteZone)
-
-					r.Post("/spaces", catalogHandler.CreateSpace)
-					r.Put("/spaces/{id}", catalogHandler.UpdateSpace)
-					r.Put("/spaces/{id}/status", catalogHandler.UpdateSpaceStatus)
-					r.Delete("/spaces/{id}", catalogHandler.DeleteSpace)
-
-					r.Post("/vehicle-types", catalogHandler.CreateVehicleType)
-					r.Put("/vehicle-types/{id}", catalogHandler.UpdateVehicleType)
-					r.Delete("/vehicle-types/{id}", catalogHandler.DeleteVehicleType)
+					r.Use(admin)
+					r.Post("/sites", h.catalog.CreateSite)
+					r.Put("/sites/{id}", h.catalog.UpdateSite)
+					r.Delete("/sites/{id}", h.catalog.DeleteSite)
+					r.Post("/zones", h.catalog.CreateZone)
+					r.Put("/zones/{id}", h.catalog.UpdateZone)
+					r.Delete("/zones/{id}", h.catalog.DeleteZone)
+					r.Post("/spaces", h.catalog.CreateSpace)
+					r.Put("/spaces/{id}", h.catalog.UpdateSpace)
+					r.Put("/spaces/{id}/status", h.catalog.UpdateSpaceStatus)
+					r.Delete("/spaces/{id}", h.catalog.DeleteSpace)
+					r.Post("/vehicle-types", h.catalog.CreateVehicleType)
+					r.Put("/vehicle-types/{id}", h.catalog.UpdateVehicleType)
+					r.Delete("/vehicle-types/{id}", h.catalog.DeleteVehicleType)
 				})
 			})
 		})
 	})
 
+	// Interfaz web (archivos estáticos embebidos en el binario).
+	r.Handle("/*", web.Handler())
+
 	return r
 }
 
-// siteResolver implementa billing.SiteResolver usando los servicios de parking y suscripciones.
+// siteResolver permite a billing saber a qué sede pertenece un ticket o abono.
 type siteResolver struct {
-	parking interface {
-		TicketSite(ticketID string) (string, error)
-	}
-	subs interface {
-		SubscriptionSite(subscriptionID string) (string, error)
-	}
+	parking interface{ TicketSite(string) (string, error) }
+	subs    interface{ SubscriptionSite(string) (string, error) }
 }
 
-func (s *siteResolver) TicketSite(ticketID string) (string, error) {
-	return s.parking.TicketSite(ticketID)
-}
-
-func (s *siteResolver) SubscriptionSite(subscriptionID string) (string, error) {
-	return s.subs.SubscriptionSite(subscriptionID)
+func (s *siteResolver) TicketSite(id string) (string, error) { return s.parking.TicketSite(id) }
+func (s *siteResolver) SubscriptionSite(id string) (string, error) {
+	return s.subs.SubscriptionSite(id)
 }
 
 // spaceAllocator adapta catalog.Service a parking.SpaceAllocator.

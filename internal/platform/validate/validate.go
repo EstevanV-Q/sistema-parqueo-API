@@ -1,6 +1,5 @@
-// Package validate envuelve go-playground/validator para que los handlers
-// validen DTOs con etiquetas `validate:"..."` y devuelvan errores de dominio
-// con detalles por campo.
+// Package validate valida DTOs con etiquetas `validate:"..."` y devuelve
+// errores de dominio con detalle por campo.
 package validate
 
 import (

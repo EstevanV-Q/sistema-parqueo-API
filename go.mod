@@ -3,7 +3,6 @@ module parking-backend
 go 1.27.4
 
 require (
-	github.com/coder/websocket v1.8.15
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-playground/validator/v10 v10.30.5
 	github.com/go-sql-driver/mysql v1.10.1

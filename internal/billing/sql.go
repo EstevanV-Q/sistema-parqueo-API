@@ -6,24 +6,17 @@ import (
 
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
-	"parking-backend/internal/platform/outbox"
 )
 
-type mysqlRepo struct {
-	db     *sql.DB
-	outbox *outbox.Store
+type sqlRepo struct {
+	db *sql.DB
 }
 
-func NewMySQLRepository(db *sql.DB) Repository {
-	return &mysqlRepo{db: db}
+func NewRepository(db *sql.DB) Repository {
+	return &sqlRepo{db: db}
 }
 
-// NewSQLiteRepository usa el mismo contrato y esquema lógico que MySQL.
-func NewSQLiteRepository(db *sql.DB) Repository {
-	return &mysqlRepo{db: db, outbox: outbox.NewStore(db)}
-}
-
-func (r *mysqlRepo) Create(p *Payment) error {
+func (r *sqlRepo) Create(p *Payment) error {
 	idBin := ids.UUIDv7()
 	p.ID = ids.Bin16ToString(idBin)
 
@@ -54,21 +47,6 @@ func (r *mysqlRepo) Create(p *Payment) error {
 	if err != nil {
 		return apperr.From(err)
 	}
-	if err := r.outbox.EnqueueTx(tx, "payment", p.ID, "payment.created", map[string]any{
-		"payment_id":      p.ID,
-		"ticket_id":       p.TicketID,
-		"subscription_id": p.SubscriptionID,
-		"amount_cents":    p.AmountCents,
-		"currency":        p.Currency,
-		"method":          p.Method,
-		"status":          p.Status,
-		"reference":       p.Reference,
-		"cashier_user_id": p.CashierUserID,
-		"idempotency_key": p.IdempotencyKey,
-		"created_at":      now,
-	}); err != nil {
-		return apperr.From(err)
-	}
 	if err := tx.Commit(); err != nil {
 		return apperr.From(err)
 	}
@@ -77,42 +55,30 @@ func (r *mysqlRepo) Create(p *Payment) error {
 	return nil
 }
 
-func (r *mysqlRepo) ByID(id string) (*Payment, error) {
+func (r *sqlRepo) ByID(id string) (*Payment, error) {
 	query := `SELECT id, ticket_id, subscription_id, amount_cents, currency, method, status, reference, cashier_user_id, idempotency_key, created_at, updated_at
               FROM payments WHERE id = ? LIMIT 1`
 	return scanPayment(r.db.QueryRow(query, ids.StringToBin16(id)))
 }
 
-func (r *mysqlRepo) ByTicket(ticketID string) (*Payment, error) {
+func (r *sqlRepo) ByTicket(ticketID string) (*Payment, error) {
 	query := `SELECT id, ticket_id, subscription_id, amount_cents, currency, method, status, reference, cashier_user_id, idempotency_key, created_at, updated_at
               FROM payments WHERE ticket_id = ? LIMIT 1`
 	return scanPayment(r.db.QueryRow(query, ids.StringToBin16(ticketID)))
 }
 
-func (r *mysqlRepo) ByIdempotencyKey(key string) (*Payment, error) {
+func (r *sqlRepo) ByIdempotencyKey(key string) (*Payment, error) {
 	query := `SELECT id, ticket_id, subscription_id, amount_cents, currency, method, status, reference, cashier_user_id, idempotency_key, created_at, updated_at
               FROM payments WHERE idempotency_key = ? LIMIT 1`
 	return scanPayment(r.db.QueryRow(query, key))
 }
 
-func (r *mysqlRepo) UpdateStatus(id, status string) error {
-	now := time.Now().UTC()
-	if _, err := r.db.Exec(`UPDATE payments SET status=?, updated_at=? WHERE id = ?`, status, now, ids.StringToBin16(id)); err != nil {
-		return apperr.From(err)
-	}
-	if status == PaymentRefunded {
-		if err := r.outbox.Enqueue("payment", id, "payment.refunded", map[string]any{
-			"payment_id": id,
-			"status":     status,
-			"updated_at": now,
-		}); err != nil {
-			return apperr.From(err)
-		}
-	}
-	return nil
+func (r *sqlRepo) UpdateStatus(id, status string) error {
+	_, err := r.db.Exec(`UPDATE payments SET status=?, updated_at=? WHERE id = ?`, status, time.Now().UTC(), ids.StringToBin16(id))
+	return apperr.FromErr(err)
 }
 
-func (r *mysqlRepo) CajaDiaria(siteID string, date string) (*CajaDiaria, error) {
+func (r *sqlRepo) CajaDiaria(siteID string, date string) (*CajaDiaria, error) {
 	// Los pagos se resuelven por ticket o por suscripción, ambos con site_id.
 	query := `
 		SELECT p.method, COUNT(*), COALESCE(SUM(p.amount_cents), 0)
@@ -157,7 +123,7 @@ func (r *mysqlRepo) CajaDiaria(siteID string, date string) (*CajaDiaria, error) 
 	}, nil
 }
 
-func (r *mysqlRepo) ListBySite(siteID string, from, to string, limit, offset int) ([]*Payment, error) {
+func (r *sqlRepo) ListBySite(siteID string, from, to string, limit, offset int) ([]*Payment, error) {
 	siteBin := ids.StringToBin16(siteID)
 	query := `
 		SELECT p.id, p.ticket_id, p.subscription_id, p.amount_cents, p.currency, p.method, p.status,

@@ -54,11 +54,6 @@ type SpaceCandidate struct {
 	ZoneID  string
 }
 
-// VehicleTypeResolver resuelve el ID de un tipo de vehículo activo por código.
-type VehicleTypeResolver interface {
-	VehicleTypeIDByCode(code string) (string, error)
-}
-
 // SubscriptionChecker valida si un vehículo tiene abono vigente.
 type SubscriptionChecker interface {
 	Validate(vehicleID, siteID string, now time.Time) (*Subscription, error)
@@ -73,11 +68,6 @@ type Subscription struct {
 	PlanName  string
 	ExpiresAt time.Time
 	Status    string
-}
-
-// EventPublisher publica cambios de ocupación en tiempo real.
-type EventPublisher interface {
-	Publish(siteID, event string, payload map[string]any)
 }
 
 // TicketEvent representa un cambio de estado en un ticket.

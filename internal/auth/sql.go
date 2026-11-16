@@ -6,24 +6,17 @@ import (
 
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
-	"parking-backend/internal/platform/outbox"
 )
 
-type mysqlRepo struct {
-	db     *sql.DB
-	outbox *outbox.Store
+type sqlRepo struct {
+	db *sql.DB
 }
 
-func NewMySQLRepository(db *sql.DB) Repository {
-	return &mysqlRepo{db: db}
+func NewRepository(db *sql.DB) Repository {
+	return &sqlRepo{db: db}
 }
 
-// NewSQLiteRepository usa el mismo contrato y esquema lógico que MySQL.
-func NewSQLiteRepository(db *sql.DB) Repository {
-	return &mysqlRepo{db: db, outbox: outbox.NewStore(db)}
-}
-
-func (r *mysqlRepo) Create(u *User) error {
+func (r *sqlRepo) Create(u *User) error {
 	idBin := ids.UUIDv7()
 	u.ID = ids.Bin16ToString(idBin)
 
@@ -44,17 +37,6 @@ func (r *mysqlRepo) Create(u *User) error {
 	if err != nil {
 		return apperr.From(err)
 	}
-	if err := r.outbox.EnqueueTx(tx, "user", u.ID, "user.created", map[string]any{
-		"user_id":       u.ID,
-		"username":      u.Username,
-		"email":         u.Email,
-		"password_hash": u.PasswordHash,
-		"role":          u.Role,
-		"site_id":       u.SiteID,
-		"active":        u.Active,
-	}); err != nil {
-		return apperr.From(err)
-	}
 	if err := tx.Commit(); err != nil {
 		return apperr.From(err)
 	}
@@ -62,33 +44,33 @@ func (r *mysqlRepo) Create(u *User) error {
 	return nil
 }
 
-func (r *mysqlRepo) ByUsername(username string) (*User, error) {
+func (r *sqlRepo) ByUsername(username string) (*User, error) {
 	query := `SELECT id, username, email, password_hash, role, site_id, active, created_at, last_login
               FROM users WHERE username = ? LIMIT 1`
 	row := r.db.QueryRow(query, username)
 	return scanUser(row)
 }
 
-func (r *mysqlRepo) ByEmail(email string) (*User, error) {
+func (r *sqlRepo) ByEmail(email string) (*User, error) {
 	query := `SELECT id, username, email, password_hash, role, site_id, active, created_at, last_login
               FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`
 	row := r.db.QueryRow(query, email)
 	return scanUser(row)
 }
 
-func (r *mysqlRepo) ByID(id string) (*User, error) {
+func (r *sqlRepo) ByID(id string) (*User, error) {
 	query := `SELECT id, username, email, password_hash, role, site_id, active, created_at, last_login
               FROM users WHERE id = ? LIMIT 1`
 	row := r.db.QueryRow(query, ids.StringToBin16(id))
 	return scanUser(row)
 }
 
-func (r *mysqlRepo) UpdateLastLogin(id string, at time.Time) error {
+func (r *sqlRepo) UpdateLastLogin(id string, at time.Time) error {
 	_, err := r.db.Exec(`UPDATE users SET last_login = ? WHERE id = ?`, at, ids.StringToBin16(id))
 	return apperr.FromErr(err)
 }
 
-func (r *mysqlRepo) CreateRefreshToken(t *RefreshToken) error {
+func (r *sqlRepo) CreateRefreshToken(t *RefreshToken) error {
 	idBin := ids.UUIDv7()
 	t.ID = ids.Bin16ToString(idBin)
 	query := `INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, created_at)
@@ -100,7 +82,7 @@ func (r *mysqlRepo) CreateRefreshToken(t *RefreshToken) error {
 	return nil
 }
 
-func (r *mysqlRepo) RefreshTokenByHash(hash string) (*RefreshToken, error) {
+func (r *sqlRepo) RefreshTokenByHash(hash string) (*RefreshToken, error) {
 	query := `SELECT id, user_id, token_hash, expires_at, revoked_at, created_at
 	          FROM refresh_tokens WHERE token_hash = ? LIMIT 1`
 	var t RefreshToken
@@ -121,13 +103,13 @@ func (r *mysqlRepo) RefreshTokenByHash(hash string) (*RefreshToken, error) {
 	return &t, nil
 }
 
-func (r *mysqlRepo) RevokeRefreshToken(id string) error {
+func (r *sqlRepo) RevokeRefreshToken(id string) error {
 	_, err := r.db.Exec(`UPDATE refresh_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`,
 		time.Now().UTC(), ids.StringToBin16(id))
 	return apperr.FromErr(err)
 }
 
-func (r *mysqlRepo) RevokeUserRefreshTokens(userID string) error {
+func (r *sqlRepo) RevokeUserRefreshTokens(userID string) error {
 	_, err := r.db.Exec(`UPDATE refresh_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`,
 		time.Now().UTC(), ids.StringToBin16(userID))
 	return apperr.FromErr(err)

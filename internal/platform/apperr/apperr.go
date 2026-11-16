@@ -78,9 +78,7 @@ func isDuplicateKey(err error) bool {
 	return false
 }
 
-// FromErr es como From pero devuelve nil cuando err es nil. Se usa en rutas
-// donde el resultado de una operación exitosa se retorna directamente como
-// error (por ejemplo, el retorno de un Exec).
+// FromErr es como From pero devuelve nil si err es nil.
 func FromErr(err error) error {
 	if err == nil {
 		return nil
@@ -90,23 +88,21 @@ func FromErr(err error) error {
 
 // Códigos de error estándar del dominio.
 const (
-	ErrInternal           = "INTERNAL"
-	ErrInvalidInput       = "INVALID_INPUT"
-	ErrNotFound           = "NOT_FOUND"
-	ErrAlreadyExists      = "ALREADY_EXISTS"
-	ErrUnauthorized       = "UNAUTHORIZED"
-	ErrForbidden          = "FORBIDDEN"
-	ErrSpaceOccupied      = "SPACE_OCCUPIED"
-	ErrVehicleAlreadyIn   = "VEHICLE_ALREADY_INSIDE"
-	ErrTicketNotOpen      = "TICKET_NOT_OPEN"
-	ErrTicketAlreadyPaid  = "TICKET_ALREADY_PAID"
-	ErrSiteClosed         = "SITE_CLOSED"
-	ErrRatePlanNotFound   = "RATE_PLAN_NOT_FOUND"
-	ErrDeviceNotFound     = "DEVICE_NOT_FOUND"
-	ErrDeviceUnauthorized = "DEVICE_UNAUTHORIZED"
-	ErrIdempotencyKey     = "IDEMPOTENCY_KEY_CONFLICT"
-	ErrTooManyRequests    = "TOO_MANY_REQUESTS"
-	ErrConflict           = "CONFLICT"
+	ErrInternal          = "INTERNAL"
+	ErrInvalidInput      = "INVALID_INPUT"
+	ErrNotFound          = "NOT_FOUND"
+	ErrAlreadyExists     = "ALREADY_EXISTS"
+	ErrUnauthorized      = "UNAUTHORIZED"
+	ErrForbidden         = "FORBIDDEN"
+	ErrSpaceOccupied     = "SPACE_OCCUPIED"
+	ErrVehicleAlreadyIn  = "VEHICLE_ALREADY_INSIDE"
+	ErrTicketNotOpen     = "TICKET_NOT_OPEN"
+	ErrTicketAlreadyPaid = "TICKET_ALREADY_PAID"
+	ErrSiteClosed        = "SITE_CLOSED"
+	ErrRatePlanNotFound  = "RATE_PLAN_NOT_FOUND"
+	ErrIdempotencyKey    = "IDEMPOTENCY_KEY_CONFLICT"
+	ErrTooManyRequests   = "TOO_MANY_REQUESTS"
+	ErrConflict          = "CONFLICT"
 )
 
 // New crea un Error con los campos dados.

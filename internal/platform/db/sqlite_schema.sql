@@ -1,6 +1,5 @@
--- Esquema local para el API de borde (SQLite).
--- Los IDs se guardan como BLOB de 16 bytes para mantener el mismo contrato que
--- MySQL y permitir que los repositorios compartan las consultas.
+-- Esquema SQLite. Los IDs son BLOB de 16 bytes, igual que en MySQL,
+-- para que ambos motores compartan las mismas consultas.
 
 CREATE TABLE IF NOT EXISTS users (
     id BLOB PRIMARY KEY,
@@ -245,55 +244,3 @@ CREATE TABLE IF NOT EXISTS payments (
 );
 CREATE INDEX IF NOT EXISTS idx_payments_ticket ON payments(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_payments_created ON payments(created_at);
-
-CREATE TABLE IF NOT EXISTS devices (
-    id BLOB PRIMARY KEY,
-    site_id BLOB NOT NULL,
-    name TEXT NOT NULL,
-    type TEXT NOT NULL CHECK (type IN ('barrier','lpr','rfid','printer')),
-    api_key_hash TEXT NOT NULL,
-    is_active INTEGER NOT NULL DEFAULT 1,
-    last_heartbeat TIMESTAMP NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (site_id) REFERENCES sites(id)
-);
-CREATE INDEX IF NOT EXISTS idx_devices_site ON devices(site_id);
-CREATE INDEX IF NOT EXISTS idx_devices_api_key ON devices(api_key_hash);
-
-CREATE TABLE IF NOT EXISTS device_events (
-    id BLOB PRIMARY KEY,
-    device_id BLOB NOT NULL,
-    event_id TEXT NOT NULL UNIQUE,
-    event_type TEXT NOT NULL,
-    plate_normalized TEXT NULL,
-    command TEXT NULL,
-    decision TEXT NOT NULL CHECK (decision IN ('allow','deny')),
-    reason TEXT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (device_id) REFERENCES devices(id)
-);
-CREATE INDEX IF NOT EXISTS idx_device_events_device ON device_events(device_id);
-CREATE INDEX IF NOT EXISTS idx_device_events_created ON device_events(created_at);
-
--- Outbox transaccional: cada operación local deja un evento para sincronizar.
-CREATE TABLE IF NOT EXISTS outbox (
-    id BLOB PRIMARY KEY,
-    aggregate_type TEXT NOT NULL,
-    aggregate_id BLOB NOT NULL,
-    event_type TEXT NOT NULL,
-    payload TEXT NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    attempts INTEGER NOT NULL DEFAULT 0,
-    next_attempt_at TIMESTAMP NULL,
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','failed')),
-    last_error TEXT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox(status, next_attempt_at, created_at);
-CREATE INDEX IF NOT EXISTS idx_outbox_aggregate ON outbox(aggregate_type, aggregate_id);
-
--- Estado de sincronización para cursores de descarga (catálogo, tarifas, etc.).
-CREATE TABLE IF NOT EXISTS sync_state (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);

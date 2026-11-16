@@ -2,9 +2,9 @@ openapi: 3.0.3
 info:
   title: Sistema de Parqueo API
   description: |
-    Backend de control de parqueo multi-sede. Maneja tickets, tarifas,
-    pagos, abonos, dispositivos (barreras simuladas), auditoría y reportes.
-    Todos los montos se expresan en centavos enteros (`int64`).
+    Control de parqueo: entradas, salidas, asignación de espacios, tarifas,
+    pagos, abonos, auditoría y reportes.
+    Los montos van en céntimos enteros (`int64`): ₡1 000 = 100000.
   version: 1.0.0
   contact:
     name: Equipo Sistema de Parqueo
@@ -28,16 +28,10 @@ tags:
     description: Clientes
   - name: rate-plans
     description: Tarifas
-  - name: devices
-    description: Dispositivos y barreras simuladas
   - name: reports
     description: Reportes operativos
   - name: audit
     description: Auditoría append-only
-  - name: realtime
-    description: WebSocket de ocupación
-  - name: sync
-    description: Ingesta idempotente de eventos desde APIs de borde
 
 paths:
   /healthz:
@@ -122,22 +116,6 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/User" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-  /api/v1/auth/ws-ticket:
-    post:
-      summary: Emitir ticket efímero para WebSocket
-      tags: [auth]
-      security: [{ bearerAuth: [] }]
-      responses:
-        "200":
-          description: Ticket emitido
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ticket: { type: string }
-                  expires_at: { type: string, format: date-time }
-        "401": { $ref: "#/components/responses/Unauthorized" }
   /api/v1/auth/register:
     post:
       summary: Crear usuario (solo admin)
@@ -176,7 +154,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Ticket" }
-        "409": { description: Espacio ocupado o vehículo ya dentro }
+        "409": { description: Espacio ocupado, vehículo ya dentro o parqueo lleno }
     get:
       summary: Listar tickets de una sede
       tags: [tickets]
@@ -668,65 +646,6 @@ paths:
       responses:
         "204": { description: Desactivado }
 
-  /api/v1/devices:
-    post:
-      summary: Registrar dispositivo (admin)
-      tags: [devices]
-      security: [{ bearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [site_id, name, type, api_key]
-              properties:
-                site_id: { type: string }
-                name: { type: string }
-                type: { type: string, enum: [barrier, lpr, rfid, printer] }
-                api_key: { type: string, minLength: 16, description: Se guarda solo su hash SHA-256 }
-      responses:
-        "201": { description: Dispositivo creado }
-    get:
-      summary: Listar dispositivos de una sede
-      tags: [devices]
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - { $ref: "#/components/parameters/SiteID" }
-      responses:
-        "200": { description: Dispositivos }
-  /api/v1/devices/events:
-    post:
-      summary: Procesar evento de dispositivo (autenticado por X-Device-Key)
-      tags: [devices]
-      parameters:
-        - name: X-Device-Key
-          in: header
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [event_id, event_type]
-              properties:
-                event_id: { type: string, description: Clave de idempotencia del evento }
-                event_type: { type: string, enum: [entry_detected, exit_detected, heartbeat, command_ack] }
-                plate_normalized: { type: string }
-      responses:
-        "200":
-          description: Evento procesado
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  event: { $ref: "#/components/schemas/DeviceEvent" }
-                  command: { type: string, enum: [allow, deny] }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-
   /api/v1/reports/occupancy:
     get:
       summary: Ocupación por sede
@@ -775,67 +694,12 @@ paths:
       responses:
         "200": { description: Registros de auditoría }
 
-  /api/v1/sync/events:
-    post:
-      summary: Recibir un evento de una API de borde
-      description: |
-        Endpoint del central. Requiere `SYNC_TOKEN` y el encabezado `X-Site-ID`.
-        El evento se guarda en `sync_inbox` de forma idempotente por `id`.
-      tags: [sync]
-      security:
-        - syncToken: []
-      parameters:
-        - in: header
-          name: X-Site-ID
-          required: true
-          schema: { type: string, pattern: "^[0-9a-f]{32}$" }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [id, aggregate_type, aggregate_id, event_type, payload]
-              properties:
-                id: { type: string, pattern: "^[0-9a-f]{32}$" }
-                aggregate_type: { type: string, maxLength: 50 }
-                aggregate_id: { type: string, pattern: "^[0-9a-f]{32}$" }
-                event_type: { type: string, maxLength: 100 }
-                payload: { type: object, additionalProperties: true }
-                created_at: { type: string, format: date-time }
-      responses:
-        "202": { description: Evento aceptado o ya recibido }
-        "400": { description: Evento inválido }
-        "401": { description: Token de sincronización inválido }
-        "403": { description: Sede no autorizada }
-
-  /api/v1/ws/occupancy:
-    get:
-      summary: WebSocket de ocupación por sede
-      tags: [realtime]
-      parameters:
-        - { $ref: "#/components/parameters/SiteID" }
-        - name: ticket
-          in: query
-          required: true
-          schema: { type: string }
-          description: Ticket efímero emitido por /api/v1/auth/ws-ticket
-      responses:
-        "101": { description: Cambio de protocolo a WebSocket }
-        "400": { description: site_id requerido }
-        "401": { description: ticket inválido o expirado }
-        "403": { description: sin acceso a la sede }
-
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-    syncToken:
-      type: http
-      scheme: bearer
-      description: Token de servicio configurado en SYNC_TOKEN
   parameters:
     SiteID:
       name: site_id
@@ -917,7 +781,7 @@ components:
       properties:
         site_id: { type: string }
         zone_id: { type: string }
-        space_id: { type: string }
+        space_id: { type: string, description: "Opcional. Si se omite, se asigna el primer espacio libre del tipo." }
         vehicle_id: { type: string }
         plate_normalized: { type: string }
         plate_raw: { type: string }
@@ -938,7 +802,7 @@ components:
         ticket_id: { type: string, nullable: true }
         subscription_id: { type: string, nullable: true }
         amount_cents: { type: integer, format: int64 }
-        currency: { type: string, default: COP }
+        currency: { type: string, default: CRC }
         method: { type: string, enum: [cash, card, transfer, abonnement, waived] }
         reference: { type: string }
         cashier_user_id: { type: string }
@@ -988,7 +852,7 @@ components:
       properties:
         site_id: { type: string }
         name: { type: string }
-        currency: { type: string, default: COP }
+        currency: { type: string, default: CRC }
         grace_minutes: { type: integer }
         minimum_cents: { type: integer, format: int64 }
         fraction_minutes: { type: integer }
@@ -1002,8 +866,8 @@ components:
       properties:
         name: { type: string }
         code: { type: string }
-        timezone: { type: string, example: America/Bogota }
-        currency: { type: string, example: COP }
+        timezone: { type: string, example: America/Costa_Rica }
+        currency: { type: string, example: CRC }
         capacity_total: { type: integer }
         is_active: { type: boolean }
     ZoneRequest:
@@ -1031,14 +895,3 @@ components:
         name: { type: string }
         code: { type: string }
         is_active: { type: boolean }
-    DeviceEvent:
-      type: object
-      properties:
-        id: { type: string }
-        device_id: { type: string }
-        event_id: { type: string }
-        event_type: { type: string }
-        plate_normalized: { type: string, nullable: true }
-        decision: { type: string, enum: [allow, deny] }
-        reason: { type: string, nullable: true }
-        created_at: { type: string, format: date-time }

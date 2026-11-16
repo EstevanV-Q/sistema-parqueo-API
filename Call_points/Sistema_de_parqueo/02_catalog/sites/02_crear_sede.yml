@@ -15,8 +15,8 @@ http:
       {
         "name": "Sede Bruno {{$timestamp}}",
         "code": "BRUNO-{{$timestamp}}",
-        "timezone": "America/Bogota",
-        "currency": "COP",
+        "timezone": "America/Costa_Rica",
+        "currency": "CRC",
         "capacity_total": 20
       }
   auth:

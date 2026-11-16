@@ -1,5 +1,5 @@
-// Package edge contiene el bootstrap y las piezas específicas del API local.
-package edge
+// Package seed carga los datos de demostración de forma idempotente.
+package seed
 
 import (
 	"database/sql"
@@ -10,7 +10,6 @@ import (
 	"parking-backend/internal/catalog"
 	"parking-backend/internal/config"
 	"parking-backend/internal/customers"
-	"parking-backend/internal/devices"
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
 	"parking-backend/internal/rateplans"
@@ -18,43 +17,38 @@ import (
 	"parking-backend/internal/vehicles"
 )
 
-// SeedResult identifica los datos creados o reutilizados en el borde.
-type SeedResult struct {
+// Result identifica los datos creados o reutilizados.
+type Result struct {
 	SiteID     string
 	SiteName   string
 	AdminID    string
 	OperatorID string
 	AuditorID  string
 	VehicleID  string
-	DeviceID   string
 	RatePlanID string
 }
 
-// Seed crea los datos mínimos para que una sede pueda operar sin conexión.
-// Es idempotente por código de sede, usuario, documento, placa y nombre.
-func Seed(database *sql.DB, cfg *config.Config) (*SeedResult, error) {
+// Run crea sede, usuarios, zonas, espacios, tarifas y un abonado de ejemplo.
+// Es idempotente: si un dato ya existe, lo reutiliza.
+func Run(database *sql.DB, cfg *config.Config) (*Result, error) {
 	if cfg.SeedAdminPassword == "" || cfg.SeedOperatorPassword == "" || cfg.SeedAuditorPassword == "" {
 		return nil, fmt.Errorf("SEED_ADMIN_PASSWORD, SEED_OPERATOR_PASSWORD y SEED_AUDITOR_PASSWORD son requeridos")
 	}
-	if len(cfg.SeedDeviceAPIKey) < 16 {
-		return nil, fmt.Errorf("SEED_DEVICE_API_KEY es requerido y debe tener al menos 16 caracteres")
-	}
 
-	siteRepo := catalog.NewSQLiteSiteRepo(database)
-	zoneRepo := catalog.NewSQLiteZoneRepo(database)
-	spaceRepo := catalog.NewSQLiteSpaceRepo(database)
-	vtRepo := catalog.NewSQLiteVehicleTypeRepo(database)
+	siteRepo := catalog.NewSiteRepo(database)
+	zoneRepo := catalog.NewZoneRepo(database)
+	spaceRepo := catalog.NewSpaceRepo(database)
+	vtRepo := catalog.NewVehicleTypeRepo(database)
 	catalogSvc := catalog.NewService(siteRepo, zoneRepo, spaceRepo, vtRepo)
-	authRepo := auth.NewSQLiteRepository(database)
+	authRepo := auth.NewRepository(database)
 	authSvc := auth.NewService(authRepo, cfg)
-	rateplansSvc := rateplans.NewService(rateplans.NewSQLiteRepository(database))
-	customersRepo := customers.NewSQLiteRepository(database)
+	rateplansSvc := rateplans.NewService(rateplans.NewRepository(database))
+	customersRepo := customers.NewRepository(database)
 	customersSvc := customers.NewService(customersRepo)
-	vehiclesSvc := vehicles.NewService(vehicles.NewSQLiteRepository(database))
-	subscriptionsRepo := subscriptions.NewSQLiteRepository(database)
-	devicesSvc := devices.NewService(devices.NewSQLiteRepository(database))
+	vehiclesSvc := vehicles.NewService(vehicles.NewRepository(database))
+	subscriptionsRepo := subscriptions.NewRepository(database)
 
-	result := &SeedResult{SiteName: cfg.SeedSiteName}
+	result := &Result{SiteName: cfg.SeedSiteName}
 
 	site, err := siteRepo.ByCode(cfg.SeedSiteCode)
 	if err != nil && !apperr.Is(err, apperr.ErrNotFound) {
@@ -96,12 +90,12 @@ func Seed(database *sql.DB, cfg *config.Config) (*SeedResult, error) {
 		return nil, err
 	}
 
-	vehicleType, err := vtRepo.ByCode(cfg.DefaultVehicleTypeCode)
+	vehicleType, err := vtRepo.ByCode("car")
 	if err != nil && !apperr.Is(err, apperr.ErrNotFound) {
 		return nil, err
 	}
 	if vehicleType == nil {
-		vehicleType, err = catalogSvc.CreateVehicleType("Carro", cfg.DefaultVehicleTypeCode)
+		vehicleType, err = catalogSvc.CreateVehicleType("Carro", "car")
 		if err != nil {
 			return nil, err
 		}
@@ -156,21 +150,6 @@ func Seed(database *sql.DB, cfg *config.Config) (*SeedResult, error) {
 		}
 	}
 
-	existingDevices, err := devicesSvc.ListBySite(site.ID)
-	if err != nil {
-		return nil, err
-	}
-	for _, d := range existingDevices {
-		if d.Name == "Barrera Principal" {
-			result.DeviceID = d.ID
-			return result, nil
-		}
-	}
-	device, err := devicesSvc.RegisterDevice(site.ID, "Barrera Principal", devices.DeviceBarrier, cfg.SeedDeviceAPIKey)
-	if err != nil {
-		return nil, err
-	}
-	result.DeviceID = device.ID
 	return result, nil
 }
 

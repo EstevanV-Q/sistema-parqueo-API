@@ -23,7 +23,7 @@ vendor/
 coverage.out
 .tmp/
 
-# SQLite local (API de borde)
+# SQLite local
 *.db
 *.db-shm
 *.db-wal
@@ -31,5 +31,5 @@ coverage.out
 # Docker
 docker-data/
 
-# Offline queue data
+# Datos locales (base SQLite del ejecutable)
 data/

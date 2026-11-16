@@ -118,10 +118,8 @@ func TokenExpiry(d time.Duration) time.Time {
 	return time.Now().Add(d)
 }
 
-// tokenPepper es una clave secreta opcional para HMAC al hashear tokens.
-// Se lee de la variable de entorno TOKEN_PEPPER. Si no se define, se usa
-// SHA-256 plano (compatibilidad hacia atrás) pero se recomienda definirla
-// en producción para evitar rainbow tables.
+// tokenPepper (TOKEN_PEPPER) es la clave HMAC opcional para hashear tokens.
+// Sin ella se usa SHA-256 plano.
 var tokenPepper = []byte(os.Getenv("TOKEN_PEPPER"))
 
 // HashToken hashea un token opaco (refresh token o API key) usando HMAC-SHA256

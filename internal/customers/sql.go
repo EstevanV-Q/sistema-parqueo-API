@@ -6,24 +6,17 @@ import (
 
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
-	"parking-backend/internal/platform/outbox"
 )
 
-type mysqlRepo struct {
-	db     *sql.DB
-	outbox *outbox.Store
+type sqlRepo struct {
+	db *sql.DB
 }
 
-func NewMySQLRepository(db *sql.DB) Repository {
-	return &mysqlRepo{db: db}
+func NewRepository(db *sql.DB) Repository {
+	return &sqlRepo{db: db}
 }
 
-// NewSQLiteRepository usa el mismo contrato y esquema lógico que MySQL.
-func NewSQLiteRepository(db *sql.DB) Repository {
-	return &mysqlRepo{db: db, outbox: outbox.NewStore(db)}
-}
-
-func (r *mysqlRepo) Create(c *Customer) error {
+func (r *sqlRepo) Create(c *Customer) error {
 	idBin := ids.UUIDv7()
 	c.ID = ids.Bin16ToString(idBin)
 	query := `INSERT INTO customers (id, document, name, phone, email, is_active, created_at)
@@ -46,16 +39,6 @@ func (r *mysqlRepo) Create(c *Customer) error {
 	if err != nil {
 		return apperr.From(err)
 	}
-	if err := r.outbox.EnqueueTx(tx, "customer", c.ID, "customer.created", map[string]any{
-		"customer_id": c.ID,
-		"document":    c.Document,
-		"name":        c.Name,
-		"phone":       c.Phone,
-		"email":       c.Email,
-		"is_active":   c.IsActive,
-	}); err != nil {
-		return apperr.From(err)
-	}
 	if err := tx.Commit(); err != nil {
 		return apperr.From(err)
 	}
@@ -63,19 +46,19 @@ func (r *mysqlRepo) Create(c *Customer) error {
 	return nil
 }
 
-func (r *mysqlRepo) ByID(id string) (*Customer, error) {
+func (r *sqlRepo) ByID(id string) (*Customer, error) {
 	query := `SELECT id, document, name, phone, email, is_active, created_at
               FROM customers WHERE id = ? LIMIT 1`
 	return scanCustomer(r.db.QueryRow(query, ids.StringToBin16(id)))
 }
 
-func (r *mysqlRepo) ByDocument(document string) (*Customer, error) {
+func (r *sqlRepo) ByDocument(document string) (*Customer, error) {
 	query := `SELECT id, document, name, phone, email, is_active, created_at
               FROM customers WHERE document = ? LIMIT 1`
 	return scanCustomer(r.db.QueryRow(query, document))
 }
 
-func (r *mysqlRepo) List(limit, offset int) ([]*Customer, error) {
+func (r *sqlRepo) List(limit, offset int) ([]*Customer, error) {
 	query := `SELECT id, document, name, phone, email, is_active, created_at
               FROM customers ORDER BY name LIMIT ? OFFSET ?`
 	rows, err := r.db.Query(query, limit, offset)

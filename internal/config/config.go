@@ -7,9 +7,8 @@ import (
 	"time"
 )
 
-// Config contiene toda la configuración de la aplicación.
-// Los valores se leen de variables de entorno y, opcionalmente, de un archivo .env.
-// Ningún secreto tiene valor por defecto inseguro: deben proveerse explícitamente.
+// Config se lee de variables de entorno (y de .env si existe).
+// Los secretos no tienen valor por defecto.
 type Config struct {
 	// Servidor
 	Port     string
@@ -17,7 +16,7 @@ type Config struct {
 	LogLevel string
 
 	// Base de datos
-	DBDriver   string // mysql (central) o sqlite (borde)
+	DBDriver   string // mysql o sqlite
 	SQLitePath string
 	DBUser     string
 	DBPass     string
@@ -27,12 +26,6 @@ type Config struct {
 	DBMaxOpen  int
 	DBMaxIdle  int
 	DBMaxLife  time.Duration
-
-	// Sincronización del borde con la API central
-	EdgeSiteID   string
-	SyncURL      string
-	SyncToken    string
-	SyncInterval time.Duration
 
 	// Seguridad JWT
 	JWTSecret   string
@@ -47,9 +40,6 @@ type Config struct {
 	// Zona horaria del sitio
 	SiteTimezone string
 
-	// Tipo de vehículo usado para entradas automáticas por LPR.
-	DefaultVehicleTypeCode string
-
 	// Timeouts HTTP
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
@@ -59,14 +49,9 @@ type Config struct {
 	SeedAdminPassword    string
 	SeedOperatorPassword string
 	SeedAuditorPassword  string
-	SeedDeviceAPIKey     string
 	SeedSiteCode         string
 	SeedSiteName         string
 	SeedVehiclePlate     string
-
-	// Bruno Collection
-	BaseURL string
-	WSURL   string
 }
 
 // Load lee la configuración desde el entorno y un archivo .env si existe.
@@ -120,11 +105,6 @@ func Load() (*Config, error) {
 		DBMaxIdle:  getEnvInt("DB_MAX_IDLE", 25),
 		DBMaxLife:  getEnvDuration("DB_MAX_LIFE", "5m"),
 
-		EdgeSiteID:   getEnv("EDGE_SITE_ID", ""),
-		SyncURL:      getEnv("SYNC_URL", ""),
-		SyncToken:    getEnv("SYNC_TOKEN", ""),
-		SyncInterval: getEnvDuration("SYNC_INTERVAL", "30s"),
-
 		JWTSecret:          jwtSecret,
 		JWTIssuer:          getEnv("JWT_ISSUER", "parking-backend"),
 		JWTAudience:        getEnv("JWT_AUDIENCE", "parking-api"),
@@ -132,8 +112,7 @@ func Load() (*Config, error) {
 		JWTRefresh:         getEnvDuration("JWT_REFRESH", "72h"),
 		CORSAllowedOrigins: getEnvList("CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000", "http://localhost:8080", "https://localhost:3000"}),
 
-		SiteTimezone:           getEnv("SITE_TIMEZONE", "America/Costa_Rica"),
-		DefaultVehicleTypeCode: getEnv("DEFAULT_VEHICLE_TYPE_CODE", "car"),
+		SiteTimezone: getEnv("SITE_TIMEZONE", "America/Costa_Rica"),
 
 		ReadTimeout:  getEnvDuration("READ_TIMEOUT", "10s"),
 		WriteTimeout: getEnvDuration("WRITE_TIMEOUT", "10s"),
@@ -142,13 +121,9 @@ func Load() (*Config, error) {
 		SeedAdminPassword:    getEnv("SEED_ADMIN_PASSWORD", ""),
 		SeedOperatorPassword: getEnv("SEED_OPERATOR_PASSWORD", ""),
 		SeedAuditorPassword:  getEnv("SEED_AUDITOR_PASSWORD", ""),
-		SeedDeviceAPIKey:     getEnv("SEED_DEVICE_API_KEY", ""),
 		SeedSiteCode:         getEnv("SEED_SITE_CODE", "PLAZA-01"),
 		SeedSiteName:         getEnv("SEED_SITE_NAME", "Centro Comercial Plaza"),
 		SeedVehiclePlate:     getEnv("SEED_VEHICLE_PLATE", "XYZ987"),
-
-		BaseURL: getEnv("BASE_URL", "http://localhost:8080"),
-		WSURL:   getEnv("WS_URL", "ws://localhost:8080"),
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -185,28 +160,13 @@ func (c *Config) validate() error {
 	if c.JWTRefresh <= 0 {
 		return fmt.Errorf("JWT_REFRESH debe ser una duración válida mayor a cero")
 	}
-	if strings.TrimSpace(c.DefaultVehicleTypeCode) == "" {
-		return fmt.Errorf("DEFAULT_VEHICLE_TYPE_CODE es requerido")
-	}
 	if !c.IsSQLite() && (c.DBMaxOpen <= 0 || c.DBMaxIdle <= 0) {
 		return fmt.Errorf("DB_MAX_OPEN y DB_MAX_IDLE deben ser mayores a cero")
-	}
-	if c.SyncInterval <= 0 {
-		return fmt.Errorf("SYNC_INTERVAL debe ser una duración válida mayor a cero")
-	}
-	if c.SyncURL != "" && c.SyncToken == "" {
-		return fmt.Errorf("SYNC_TOKEN es requerido cuando SYNC_URL está configurado")
-	}
-	if c.IsSQLite() && c.SyncURL != "" && c.EdgeSiteID == "" {
-		return fmt.Errorf("EDGE_SITE_ID es requerido para sincronizar una sede")
-	}
-	if c.EdgeSiteID != "" && len(c.EdgeSiteID) != 32 {
-		return fmt.Errorf("EDGE_SITE_ID debe ser un UUID de 32 caracteres hexadecimales")
 	}
 	return nil
 }
 
-// IsSQLite indica si el proceso opera como API de borde local.
+// IsSQLite indica si se usa SQLite (archivo local).
 func (c *Config) IsSQLite() bool {
 	return c.DBDriver == "sqlite"
 }

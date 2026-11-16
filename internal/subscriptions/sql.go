@@ -6,24 +6,17 @@ import (
 
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
-	"parking-backend/internal/platform/outbox"
 )
 
-type mysqlRepo struct {
-	db     *sql.DB
-	outbox *outbox.Store
+type sqlRepo struct {
+	db *sql.DB
 }
 
-func NewMySQLRepository(db *sql.DB) Repository {
-	return &mysqlRepo{db: db}
+func NewRepository(db *sql.DB) Repository {
+	return &sqlRepo{db: db}
 }
 
-// NewSQLiteRepository usa el mismo contrato y esquema lógico que MySQL.
-func NewSQLiteRepository(db *sql.DB) Repository {
-	return &mysqlRepo{db: db, outbox: outbox.NewStore(db)}
-}
-
-func (r *mysqlRepo) Create(s *Subscription) error {
+func (r *sqlRepo) Create(s *Subscription) error {
 	idBin := ids.UUIDv7()
 	s.ID = ids.Bin16ToString(idBin)
 	query := `INSERT INTO subscriptions (id, customer_id, vehicle_id, site_id, plan_name, price_cents, starts_at, expires_at, status, created_at)
@@ -39,19 +32,6 @@ func (r *mysqlRepo) Create(s *Subscription) error {
 	if err != nil {
 		return apperr.From(err)
 	}
-	if err := r.outbox.EnqueueTx(tx, "subscription", s.ID, "subscription.created", map[string]any{
-		"subscription_id": s.ID,
-		"customer_id":     s.CustomerID,
-		"vehicle_id":      s.VehicleID,
-		"site_id":         s.SiteID,
-		"plan_name":       s.PlanName,
-		"price_cents":     s.PriceCents,
-		"starts_at":       s.StartsAt,
-		"expires_at":      s.ExpiresAt,
-		"status":          s.Status,
-	}); err != nil {
-		return apperr.From(err)
-	}
 	if err := tx.Commit(); err != nil {
 		return apperr.From(err)
 	}
@@ -59,26 +39,26 @@ func (r *mysqlRepo) Create(s *Subscription) error {
 	return nil
 }
 
-func (r *mysqlRepo) ByID(id string) (*Subscription, error) {
+func (r *sqlRepo) ByID(id string) (*Subscription, error) {
 	query := `SELECT id, customer_id, vehicle_id, site_id, plan_name, price_cents, starts_at, expires_at, status, created_at
               FROM subscriptions WHERE id = ? LIMIT 1`
 	return scanSub(r.db.QueryRow(query, ids.StringToBin16(id)))
 }
 
-func (r *mysqlRepo) ByVehicle(vehicleID string) (*Subscription, error) {
+func (r *sqlRepo) ByVehicle(vehicleID string) (*Subscription, error) {
 	query := `SELECT id, customer_id, vehicle_id, site_id, plan_name, price_cents, starts_at, expires_at, status, created_at
               FROM subscriptions WHERE vehicle_id = ? ORDER BY expires_at DESC LIMIT 1`
 	return scanSub(r.db.QueryRow(query, ids.StringToBin16(vehicleID)))
 }
 
-func (r *mysqlRepo) ActiveByVehicleSite(vehicleID, siteID string, now time.Time) (*Subscription, error) {
+func (r *sqlRepo) ActiveByVehicleSite(vehicleID, siteID string, now time.Time) (*Subscription, error) {
 	query := `SELECT id, customer_id, vehicle_id, site_id, plan_name, price_cents, starts_at, expires_at, status, created_at
               FROM subscriptions WHERE vehicle_id = ? AND site_id = ? AND status = 'active' AND starts_at <= ? AND expires_at >= ?
               ORDER BY expires_at DESC LIMIT 1`
 	return scanSub(r.db.QueryRow(query, ids.StringToBin16(vehicleID), ids.StringToBin16(siteID), now, now))
 }
 
-func (r *mysqlRepo) ActiveByPlateSite(plateNormalized, siteID string, now time.Time) (*Subscription, error) {
+func (r *sqlRepo) ActiveByPlateSite(plateNormalized, siteID string, now time.Time) (*Subscription, error) {
 	query := `SELECT s.id, s.customer_id, s.vehicle_id, s.site_id, s.plan_name, s.price_cents, s.starts_at, s.expires_at, s.status, s.created_at
               FROM subscriptions s
               JOIN vehicles v ON s.vehicle_id = v.id
@@ -87,22 +67,14 @@ func (r *mysqlRepo) ActiveByPlateSite(plateNormalized, siteID string, now time.T
 	return scanSub(r.db.QueryRow(query, plateNormalized, ids.StringToBin16(siteID), now, now))
 }
 
-func (r *mysqlRepo) UpdateStatus(id, status string) error {
+func (r *sqlRepo) UpdateStatus(id, status string) error {
 	if _, err := r.db.Exec(`UPDATE subscriptions SET status=? WHERE id = ?`, status, ids.StringToBin16(id)); err != nil {
 		return apperr.From(err)
-	}
-	if status == SubCancelled {
-		if err := r.outbox.Enqueue("subscription", id, "subscription.cancelled", map[string]any{
-			"subscription_id": id,
-			"status":          status,
-		}); err != nil {
-			return apperr.From(err)
-		}
 	}
 	return nil
 }
 
-func (r *mysqlRepo) ListBySite(siteID string, status string, limit, offset int) ([]*Subscription, error) {
+func (r *sqlRepo) ListBySite(siteID string, status string, limit, offset int) ([]*Subscription, error) {
 	query := `SELECT id, customer_id, vehicle_id, site_id, plan_name, price_cents, starts_at, expires_at, status, created_at
               FROM subscriptions WHERE site_id = ? AND (? = '' OR status = ?)
               ORDER BY created_at DESC LIMIT ? OFFSET ?`

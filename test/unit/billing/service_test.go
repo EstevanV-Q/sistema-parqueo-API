@@ -87,8 +87,8 @@ func TestRegisterPayment(t *testing.T) {
 	if p.AmountCents != 3000 {
 		t.Fatalf("amount = %d, quiere 3000", p.AmountCents)
 	}
-	if p.Currency != "COP" {
-		t.Fatalf("currency = %s, quiere COP", p.Currency)
+	if p.Currency != "CRC" {
+		t.Fatalf("currency = %s, quiere CRC", p.Currency)
 	}
 	if p.Method != MethodCash {
 		t.Fatalf("method = %s, quiere cash", p.Method)
