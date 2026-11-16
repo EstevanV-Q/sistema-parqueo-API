@@ -208,16 +208,15 @@ func (s *Service) Quote(ticketID string) (*Ticket, *pricing.Quote, error) {
 		rpID = *t.RatePlanID
 	}
 
-	// Obtener tarifa desde el módulo de tarifas
-	// Fallback solo si no hay ninguna tarifa configurada (por ejemplo, demo sin seed).
+	// Tarifa por defecto (₡1 000/hora) si la sede no tiene ninguna configurada.
 	plan := pricing.Plan{
 		ID:               rpID,
 		GraceMinutes:     10,
-		MinimumCents:     1000,
+		MinimumCents:     100000,
 		FractionMinutes:  60,
-		CentsPerFraction: 1500,
-		DailyCapCents:    20000,
-		LostTicketCents:  25000,
+		CentsPerFraction: 100000,
+		DailyCapCents:    1200000,
+		LostTicketCents:  1500000,
 	}
 	if s.ratePlanReader != nil {
 		var rp *RatePlan

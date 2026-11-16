@@ -95,7 +95,7 @@ func NewWithDB(cfg *config.Config, database *sql.DB) *App {
 	return &App{
 		Config: cfg,
 		DB:     database,
-		Router: buildRouter(database, mw.NewAuthMiddleware(cfg), h),
+		Router: buildRouter(database, mw.NewAuthMiddleware(cfg), h, cfg.LogLevel == "debug" || cfg.LogLevel == "info"),
 	}
 }
 
@@ -107,12 +107,15 @@ func (a *App) Close() error {
 	return nil
 }
 
-func buildRouter(database *sql.DB, authMW *mw.AuthMiddleware, h handlers) http.Handler {
+// buildRouter arma las rutas. logRequests imprime cada petición en consola.
+func buildRouter(database *sql.DB, authMW *mw.AuthMiddleware, h handlers, logRequests bool) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chimiddleware.RequestID)
 	r.Use(mw.RequestIDHeader)
 	r.Use(chimiddleware.Recoverer)
-	r.Use(chimiddleware.Logger)
+	if logRequests {
+		r.Use(chimiddleware.Logger)
+	}
 	r.Use(mw.RequestInfo)
 	r.Use(mw.CORS)
 

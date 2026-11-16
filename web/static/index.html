@@ -1,1 +1,140 @@
-<!doctype html><title>Parqueo</title>
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Control de Parqueo</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232563eb'/><text x='16' y='23' font-size='19' font-family='Arial' font-weight='bold' fill='white' text-anchor='middle'>P</text></svg>">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <!-- Inicio de sesión -->
+  <main id="login-view" class="login" hidden>
+    <form id="login-form" class="card login-card">
+      <div class="brand"><span class="logo">P</span><div><h1>Control de Parqueo</h1><p class="muted">Ingrese con su usuario</p></div></div>
+      <label>Usuario<input name="username" autocomplete="username" required value="operador"></label>
+      <label>Contraseña<input name="password" type="password" autocomplete="current-password" required></label>
+      <button class="btn primary" type="submit">Entrar</button>
+      <p id="login-error" class="error" hidden></p>
+      <details class="hint">
+        <summary>Usuarios de prueba</summary>
+        <p><b>operador</b> / parqueo-operador<br><b>admin</b> / parqueo-admin<br><b>auditor</b> / parqueo-auditor</p>
+      </details>
+    </form>
+  </main>
+
+  <!-- Aplicación -->
+  <div id="app-view" hidden>
+    <header class="topbar">
+      <div class="brand"><span class="logo">P</span><div><strong id="site-name">Parqueo</strong><span class="muted" id="clock"></span></div></div>
+      <div class="user"><span id="user-label" class="muted"></span><button id="logout" class="btn ghost">Salir</button></div>
+    </header>
+
+    <section class="stats">
+      <div class="stat"><span class="muted">Espacios libres</span><strong id="st-free">–</strong></div>
+      <div class="stat"><span class="muted">Ocupados</span><strong id="st-occ">–</strong></div>
+      <div class="stat"><span class="muted">Ocupación</span><strong id="st-pct">–</strong><div class="bar"><i id="st-bar"></i></div></div>
+      <div class="stat"><span class="muted">Vehículos dentro</span><strong id="st-in">–</strong></div>
+    </section>
+
+    <nav class="tabs" role="tablist">
+      <button data-tab="entrada" class="active">Entrada</button>
+      <button data-tab="salida">Salida y cobro</button>
+      <button data-tab="mapa">Mapa de espacios</button>
+      <button data-tab="dentro">Vehículos dentro</button>
+      <button data-tab="reportes" data-roles="admin,auditor">Caja y reportes</button>
+      <button data-tab="tarifas">Tarifas</button>
+    </nav>
+
+    <!-- Entrada -->
+    <section id="tab-entrada" class="tab">
+      <div class="grid2">
+        <form id="entry-form" class="card">
+          <h2>Registrar entrada</h2>
+          <label>Placa<input name="plate" placeholder="Ej. ABC123" maxlength="10" required autocomplete="off"></label>
+          <label>Tipo de vehículo<select name="type" id="entry-type"></select></label>
+          <label>Espacio<select name="space" id="entry-space"><option value="">Asignar automáticamente</option></select></label>
+          <button class="btn primary" type="submit">Registrar entrada</button>
+          <p class="error" id="entry-error" hidden></p>
+        </form>
+        <div class="card" id="entry-result">
+          <h2>Último ingreso</h2>
+          <p class="muted">Aún no se ha registrado ninguna entrada.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Salida -->
+    <section id="tab-salida" class="tab" hidden>
+      <div class="grid2">
+        <form id="exit-form" class="card">
+          <h2>Buscar vehículo</h2>
+          <label>Placa<input name="plate" id="exit-plate" list="plates-inside" placeholder="Placa del vehículo" required autocomplete="off"></label>
+          <datalist id="plates-inside"></datalist>
+          <button class="btn primary" type="submit">Calcular cobro</button>
+          <p class="error" id="exit-error" hidden></p>
+        </form>
+        <div class="card" id="quote-card">
+          <h2>Cobro</h2>
+          <p class="muted">Busque una placa para calcular el monto.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Mapa -->
+    <section id="tab-mapa" class="tab" hidden>
+      <div class="card">
+        <div class="row-between"><h2>Mapa de espacios</h2><div class="legend"><span class="dot free"></span>Libre <span class="dot occupied"></span>Ocupado <span class="dot other"></span>Fuera de servicio</div></div>
+        <div id="map"></div>
+      </div>
+    </section>
+
+    <!-- Dentro -->
+    <section id="tab-dentro" class="tab" hidden>
+      <div class="card">
+        <h2>Vehículos dentro del parqueo</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Placa</th><th>Tipo</th><th>Espacio</th><th>Entrada</th><th>Tiempo</th><th></th></tr></thead>
+          <tbody id="inside-body"></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- Reportes -->
+    <section id="tab-reportes" class="tab" hidden>
+      <div class="grid2">
+        <div class="card">
+          <div class="row-between"><h2>Caja del día</h2><input type="date" id="cash-date"></div>
+          <div id="cash-body"></div>
+        </div>
+        <div class="card">
+          <h2>Ingresos últimos 7 días</h2>
+          <div id="revenue-body"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Últimas salidas</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Placa</th><th>Entrada</th><th>Salida</th><th>Tiempo</th><th>Cobrado</th><th>Estado</th></tr></thead>
+          <tbody id="history-body"></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- Tarifas -->
+    <section id="tab-tarifas" class="tab" hidden>
+      <div class="card">
+        <h2>Tarifas vigentes</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Tarifa</th><th>Gracia</th><th>Fracción</th><th>Precio por fracción</th><th>Mínimo</th><th>Tope diario</th></tr></thead>
+          <tbody id="rates-body"></tbody>
+        </table></div>
+        <p class="muted small">El cobro redondea hacia arriba: cada fracción iniciada se cobra completa, después del periodo de gracia.</p>
+      </div>
+    </section>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>
