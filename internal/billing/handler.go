@@ -221,23 +221,3 @@ func (h *Handler) ListPayments(w http.ResponseWriter, r *http.Request) {
 		"meta": page.Meta(0),
 	})
 }
-
-// CajaDiaria devuelve el arqueo de caja de una sede en una fecha.
-func (h *Handler) CajaDiaria(w http.ResponseWriter, r *http.Request) {
-	siteID := r.URL.Query().Get("site_id")
-	date := r.URL.Query().Get("date")
-	if siteID == "" || date == "" {
-		httpserver.Error(w, apperr.New(apperr.ErrInvalidInput, "site_id y date son requeridos", http.StatusBadRequest, nil))
-		return
-	}
-	if err := middleware.CheckSiteAccess(r.Context(), siteID); err != nil {
-		httpserver.Error(w, err)
-		return
-	}
-	caja, err := h.svc.repo.CajaDiaria(siteID, date)
-	if err != nil {
-		httpserver.Error(w, err)
-		return
-	}
-	httpserver.JSON(w, http.StatusOK, caja)
-}

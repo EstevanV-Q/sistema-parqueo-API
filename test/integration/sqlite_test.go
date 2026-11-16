@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"parking-backend/internal/auth"
 	"parking-backend/internal/billing"
@@ -12,6 +13,7 @@ import (
 	"parking-backend/internal/parking"
 	platformdb "parking-backend/internal/platform/db"
 	"parking-backend/internal/rateplans"
+	"parking-backend/internal/reporting"
 	"parking-backend/internal/seed"
 )
 
@@ -217,5 +219,41 @@ func TestSQLiteSeedAndAutoAssignSpace(t *testing.T) {
 	space, err := catalogSvc.GetSpace(free[0].SpaceID)
 	if err != nil || space.Code != "M-01" {
 		t.Fatalf("primer espacio de moto = %+v (%v), quiere M-01", space, err)
+	}
+}
+
+func TestSQLiteCashReportUsesSiteDate(t *testing.T) {
+	database := openSQLite(t)
+	catalogSvc := catalog.NewService(catalog.NewSiteRepo(database), catalog.NewZoneRepo(database), catalog.NewSpaceRepo(database), catalog.NewVehicleTypeRepo(database))
+	site, _ := catalogSvc.CreateSite("Sede Caja", "CAJA-01", "America/Costa_Rica", "CRC", 5)
+	zone, _ := catalogSvc.CreateZone(site.ID, "Zona", "car", 5)
+	space, _ := catalogSvc.CreateSpace(zone.ID, "C-01", "car")
+	vt, _ := catalogSvc.CreateVehicleType("Carro", "car")
+	plan, _ := rateplans.NewService(rateplans.NewRepository(database)).Create(site.ID, "Tarifa", "CRC", 0, 60, 100000, 100000, 0, 0, &vt.ID)
+
+	parkingSvc := parking.NewService(parking.NewRepository(database, false)).
+		WithRatePlanReader(rateplans.NewService(rateplans.NewRepository(database))).
+		WithSpaceUpdater(catalogSvc)
+	ticket, err := parkingSvc.CreateTicket(site.ID, zone.ID, space.ID, "", "CAJA1", "CAJA1", vt.ID, plan.ID)
+	if err != nil {
+		t.Fatalf("CreateTicket: %v", err)
+	}
+	if _, err := parkingSvc.Settle(ticket.ID, 100000, "cash", ""); err != nil {
+		t.Fatalf("Settle: %v", err)
+	}
+
+	loc, _ := time.LoadLocation("America/Costa_Rica")
+	today := time.Now().In(loc).Format("2006-01-02")
+	repo := reporting.NewRepository(database)
+	cash, err := repo.CajaDiaria(site.ID, today)
+	if err != nil {
+		t.Fatalf("CajaDiaria: %v", err)
+	}
+	if cash.Count != 1 || cash.TotalCents != 100000 || cash.ByMethod["cash"] != 100000 {
+		t.Fatalf("caja = %+v, quiere 1 pago de 100000 en efectivo", cash)
+	}
+	days, err := repo.Ingresos(site.ID, today, today)
+	if err != nil || len(days) != 1 || days[0].TotalCents != 100000 {
+		t.Fatalf("ingresos = %+v (%v)", days, err)
 	}
 }

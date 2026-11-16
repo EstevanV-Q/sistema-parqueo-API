@@ -6,6 +6,7 @@ import (
 
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
+	"parking-backend/internal/shared/sitetime"
 )
 
 type sqlRepo struct {
@@ -55,82 +56,77 @@ func (r *sqlRepo) Ocupacion(siteID string) (*Ocupacion, error) {
 	}, nil
 }
 
+// Ingresos agrupa los pagos por día (fechas YYYY-MM-DD en hora de la sede).
 func (r *sqlRepo) Ingresos(siteID string, from, to string) ([]IngresoDiario, error) {
-	query := `
-		SELECT DATE(p.created_at) AS fecha, COUNT(*), COALESCE(SUM(p.amount_cents), 0)
-		FROM payments p
-		LEFT JOIN tickets t ON p.ticket_id = t.id
-		LEFT JOIN subscriptions s ON p.subscription_id = s.id
-		WHERE p.status = 'completed' AND (t.site_id = ? OR s.site_id = ?)`
-	args := []any{ids.StringToBin16(siteID), ids.StringToBin16(siteID)}
-
-	if from != "" {
-		query += " AND DATE(p.created_at) >= ?"
-		args = append(args, from)
-	}
-	if to != "" {
-		query += " AND DATE(p.created_at) <= ?"
-		args = append(args, to)
-	}
-	query += " GROUP BY DATE(p.created_at) ORDER BY fecha"
-
-	rows, err := r.db.Query(query, args...)
+	pays, err := r.payments(siteID, from, to)
 	if err != nil {
-		return nil, apperr.From(err)
+		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-
-	var ingresos []IngresoDiario
-	for rows.Next() {
-		var i IngresoDiario
-		var fecha time.Time
-		if err := rows.Scan(&fecha, &i.Count, &i.TotalCents); err != nil {
-			return nil, apperr.From(err)
+	var out []IngresoDiario
+	for _, p := range pays {
+		if n := len(out); n > 0 && out[n-1].Date == p.date {
+			out[n-1].Count++
+			out[n-1].TotalCents += p.amount
+			continue
 		}
-		i.Date = fecha.Format("2006-01-02")
-		ingresos = append(ingresos, i)
+		out = append(out, IngresoDiario{Date: p.date, Count: 1, TotalCents: p.amount})
 	}
-	return ingresos, rows.Err()
+	return out, nil
 }
 
+// CajaDiaria resume los pagos de un día por método (hora de la sede).
 func (r *sqlRepo) CajaDiaria(siteID string, date string) (*CajaResumen, error) {
-	query := `
-		SELECT p.method, COUNT(*), COALESCE(SUM(p.amount_cents), 0)
+	pays, err := r.payments(siteID, date, date)
+	if err != nil {
+		return nil, err
+	}
+	res := &CajaResumen{SiteID: siteID, Date: date, ByMethod: map[string]int64{}}
+	for _, p := range pays {
+		res.ByMethod[p.method] += p.amount
+		res.TotalCents += p.amount
+		res.Count++
+	}
+	return res, nil
+}
+
+type payment struct {
+	date   string
+	method string
+	amount int64
+}
+
+// payments devuelve los pagos completados de la sede entre dos fechas locales
+// (inclusive). El día se calcula en Go con la zona de la sede porque DATE()
+// no es portable entre MySQL y SQLite.
+func (r *sqlRepo) payments(siteID, from, to string) ([]payment, error) {
+	loc := sitetime.Location(r.db, siteID)
+	start, end, err := sitetime.DayRange(from, to, loc)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := r.db.Query(`
+		SELECT p.method, p.amount_cents, p.created_at
 		FROM payments p
 		LEFT JOIN tickets t ON p.ticket_id = t.id
 		LEFT JOIN subscriptions s ON p.subscription_id = s.id
-		WHERE p.status = 'completed' AND DATE(p.created_at) = ?
-		  AND (t.site_id = ? OR s.site_id = ?)
-		GROUP BY p.method`
-	rows, err := r.db.Query(query, date, ids.StringToBin16(siteID), ids.StringToBin16(siteID))
+		WHERE p.status = 'completed' AND (t.site_id = ? OR s.site_id = ?)
+		  AND p.created_at >= ? AND p.created_at < ?
+		ORDER BY p.created_at`,
+		ids.StringToBin16(siteID), ids.StringToBin16(siteID), start, end)
 	if err != nil {
 		return nil, apperr.From(err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	byMethod := map[string]int64{}
-	var total int64
-	var count int
+	var out []payment
 	for rows.Next() {
-		var method string
-		var c int
-		var amount int64
-		if err := rows.Scan(&method, &c, &amount); err != nil {
+		var p payment
+		var at time.Time
+		if err := rows.Scan(&p.method, &p.amount, &at); err != nil {
 			return nil, apperr.From(err)
 		}
-		byMethod[method] = amount
-		total += amount
-		count += c
+		p.date = at.In(loc).Format("2006-01-02")
+		out = append(out, p)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, apperr.From(err)
-	}
-
-	return &CajaResumen{
-		SiteID:     siteID,
-		Date:       date,
-		TotalCents: total,
-		Count:      count,
-		ByMethod:   byMethod,
-	}, nil
+	return out, rows.Err()
 }

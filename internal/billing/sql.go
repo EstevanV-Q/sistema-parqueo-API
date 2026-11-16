@@ -6,6 +6,7 @@ import (
 
 	"parking-backend/internal/platform/apperr"
 	"parking-backend/internal/platform/ids"
+	"parking-backend/internal/shared/sitetime"
 )
 
 type sqlRepo struct {
@@ -78,51 +79,6 @@ func (r *sqlRepo) UpdateStatus(id, status string) error {
 	return apperr.FromErr(err)
 }
 
-func (r *sqlRepo) CajaDiaria(siteID string, date string) (*CajaDiaria, error) {
-	// Los pagos se resuelven por ticket o por suscripción, ambos con site_id.
-	query := `
-		SELECT p.method, COUNT(*), COALESCE(SUM(p.amount_cents), 0)
-		FROM payments p
-		LEFT JOIN tickets t ON p.ticket_id = t.id
-		LEFT JOIN subscriptions s ON p.subscription_id = s.id
-		WHERE p.status = 'completed'
-		  AND DATE(p.created_at) = ?
-		  AND (t.site_id = ? OR s.site_id = ?)
-		GROUP BY p.method
-	`
-	rows, err := r.db.Query(query, date, ids.StringToBin16(siteID), ids.StringToBin16(siteID))
-	if err != nil {
-		return nil, apperr.From(err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	byMethod := map[string]int64{}
-	var total int64
-	var count int
-	for rows.Next() {
-		var method string
-		var c int
-		var amount int64
-		if err := rows.Scan(&method, &c, &amount); err != nil {
-			return nil, apperr.From(err)
-		}
-		byMethod[method] = amount
-		total += amount
-		count += c
-	}
-	if err := rows.Err(); err != nil {
-		return nil, apperr.From(err)
-	}
-
-	return &CajaDiaria{
-		SiteID:     siteID,
-		Date:       date,
-		TotalCents: total,
-		Count:      count,
-		ByMethod:   byMethod,
-	}, nil
-}
-
 func (r *sqlRepo) ListBySite(siteID string, from, to string, limit, offset int) ([]*Payment, error) {
 	siteBin := ids.StringToBin16(siteID)
 	query := `
@@ -134,13 +90,13 @@ func (r *sqlRepo) ListBySite(siteID string, from, to string, limit, offset int) 
 		WHERE (t.site_id = ? OR s.site_id = ?)`
 	args := []any{siteBin, siteBin}
 
-	if from != "" {
-		query += " AND DATE(p.created_at) >= ?"
-		args = append(args, from)
-	}
-	if to != "" {
-		query += " AND DATE(p.created_at) <= ?"
-		args = append(args, to)
+	if from != "" || to != "" {
+		start, end, err := sitetime.DayRange(from, to, sitetime.Location(r.db, siteID))
+		if err != nil {
+			return nil, err
+		}
+		query += " AND p.created_at >= ? AND p.created_at < ?"
+		args = append(args, start, end)
 	}
 	query += " ORDER BY p.created_at DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)

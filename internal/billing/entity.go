@@ -34,12 +34,3 @@ const (
 	MethodAbonnement = "abonnement"
 	MethodWaived     = "waived"
 )
-
-// CajaDiaria representa el resumen de caja de un día.
-type CajaDiaria struct {
-	SiteID     string
-	Date       string
-	TotalCents int64
-	Count      int
-	ByMethod   map[string]int64
-}

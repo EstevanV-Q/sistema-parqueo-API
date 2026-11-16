@@ -7,6 +7,5 @@ type Repository interface {
 	ByTicket(ticketID string) (*Payment, error)
 	ByIdempotencyKey(key string) (*Payment, error)
 	UpdateStatus(id, status string) error
-	CajaDiaria(siteID string, date string) (*CajaDiaria, error)
 	ListBySite(siteID string, from, to string, limit, offset int) ([]*Payment, error)
 }

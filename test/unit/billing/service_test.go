@@ -68,10 +68,6 @@ func (f *fakeRepo) UpdateStatus(id, status string) error {
 	return nil
 }
 
-func (f *fakeRepo) CajaDiaria(siteID, date string) (*CajaDiaria, error) {
-	return &CajaDiaria{SiteID: siteID, Date: date, ByMethod: map[string]int64{}}, nil
-}
-
 func (f *fakeRepo) ListBySite(siteID, from, to string, limit, offset int) ([]*Payment, error) {
 	return nil, nil
 }
