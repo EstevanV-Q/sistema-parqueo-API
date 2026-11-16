@@ -15,6 +15,7 @@ type Service struct {
 	repo              Repository
 	ratePlanReader    RatePlanReader
 	spaceUpdater      SpaceStatusUpdater
+	spaceAllocator    SpaceAllocator
 	subscriptionCheck SubscriptionChecker
 	vehicleTypes      VehicleTypeResolver
 	defaultTypeCode   string
@@ -38,6 +39,13 @@ func (s *Service) WithRatePlanReader(r RatePlanReader) *Service {
 // WithSpaceUpdater inyecta el actualizador de estado de espacios.
 func (s *Service) WithSpaceUpdater(u SpaceStatusUpdater) *Service {
 	s.spaceUpdater = u
+	return s
+}
+
+// WithSpaceAllocator habilita la asignación automática del primer espacio libre
+// cuando la entrada no indica un espacio.
+func (s *Service) WithSpaceAllocator(a SpaceAllocator) *Service {
+	s.spaceAllocator = a
 	return s
 }
 
@@ -102,6 +110,28 @@ func (s *Service) CreateTicket(siteID, zoneID, spaceID, vehicleID, plateNormaliz
 	}
 	if existing != nil {
 		return nil, ErrVehicleAlreadyIn
+	}
+
+	// Asignación automática: si no se indicó espacio, se toma el primer espacio
+	// libre de la sede compatible con el tipo de vehículo.
+	if spaceID == "" && s.spaceAllocator != nil {
+		candidates, err := s.spaceAllocator.FreeSpaces(siteID, typeID)
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range candidates {
+			open, err := s.repo.OpenBySpace(c.SpaceID)
+			if err != nil && !apperr.Is(err, apperr.ErrNotFound) {
+				return nil, err
+			}
+			if open == nil {
+				spaceID, zoneID = c.SpaceID, c.ZoneID
+				break
+			}
+		}
+		if spaceID == "" {
+			return nil, ErrParkingFull
+		}
 	}
 
 	// Validar abono vigente (si hay checker)

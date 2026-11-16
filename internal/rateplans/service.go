@@ -24,7 +24,7 @@ func (s *Service) Create(siteID, name, currency string, graceMinutes, fractionMi
 		return nil, apperr.New(apperr.ErrInvalidInput, "fraction_minutes debe ser mayor a cero", 400, nil)
 	}
 	if currency == "" {
-		currency = "COP"
+		currency = "CRC"
 	}
 	rp := &RatePlan{
 		ID:               ids.UUIDv7String(),

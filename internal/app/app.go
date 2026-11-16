@@ -131,6 +131,7 @@ func New(cfg *config.Config) (*App, error) {
 	parkingSvc := parking.NewService(parkingRepo).
 		WithRatePlanReader(rateplansSvc).
 		WithSpaceUpdater(catalogSvc).
+		WithSpaceAllocator(spaceAllocator{catalog: catalogSvc}).
 		WithSubscriptionChecker(subscriptionsSvc).
 		WithVehicleTypeResolver(catalogSvc).
 		WithDefaultVehicleType(cfg.DefaultVehicleTypeCode).
@@ -405,4 +406,21 @@ func (s *siteResolver) TicketSite(ticketID string) (string, error) {
 
 func (s *siteResolver) SubscriptionSite(subscriptionID string) (string, error) {
 	return s.subs.SubscriptionSite(subscriptionID)
+}
+
+// spaceAllocator adapta catalog.Service a parking.SpaceAllocator.
+type spaceAllocator struct {
+	catalog *catalog.Service
+}
+
+func (a spaceAllocator) FreeSpaces(siteID, vehicleTypeID string) ([]parking.SpaceCandidate, error) {
+	refs, err := a.catalog.FreeSpaces(siteID, vehicleTypeID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]parking.SpaceCandidate, len(refs))
+	for i, r := range refs {
+		out[i] = parking.SpaceCandidate{SpaceID: r.SpaceID, ZoneID: r.ZoneID}
+	}
+	return out, nil
 }

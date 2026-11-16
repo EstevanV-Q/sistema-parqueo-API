@@ -81,7 +81,7 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Currency == "" {
-		req.Currency = "COP"
+		req.Currency = "CRC"
 	}
 	// El cajero por defecto es el usuario autenticado.
 	if req.CashierUserID == nil {

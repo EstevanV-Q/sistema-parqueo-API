@@ -149,7 +149,7 @@ func (r *mysqlRepo) SettleTicketTx(ticketID string, exitAt time.Time, totalCents
 		method = "cash"
 	}
 	_, err = tx.Exec(`INSERT INTO payments (id, ticket_id, amount_cents, currency, method, status, cashier_user_id, created_at, updated_at)
-		VALUES (?, ?, ?, 'COP', ?, 'completed', ?, ?, ?)`,
+		VALUES (?, ?, ?, 'CRC', ?, 'completed', ?, ?, ?)`,
 		paymentID, ticketBin, paidCents, method, cashierBin, now, now)
 	if err != nil {
 		return apperr.From(err)
@@ -167,7 +167,7 @@ func (r *mysqlRepo) SettleTicketTx(ticketID string, exitAt time.Time, totalCents
 		"exit_at":         exitAt,
 		"total_cents":     totalCents,
 		"paid_cents":      paidCents,
-		"currency":        "COP",
+		"currency":        "CRC",
 		"method":          method,
 		"cashier_user_id": cashierUserID,
 		"status":          TicketPaid,

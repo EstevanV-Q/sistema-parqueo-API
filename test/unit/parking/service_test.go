@@ -537,3 +537,43 @@ func TestAuthorizeEntryAndExit(t *testing.T) {
 		t.Fatal("la salida sin ticket abierto debe denegarse")
 	}
 }
+
+type fakeAllocator struct {
+	candidates []SpaceCandidate
+}
+
+func (f fakeAllocator) FreeSpaces(siteID, vehicleTypeID string) ([]SpaceCandidate, error) {
+	return f.candidates, nil
+}
+
+func TestCreateTicket_AssignsFirstFreeSpace(t *testing.T) {
+	svc, _, spaces, _ := newTestService()
+	svc.WithSpaceAllocator(fakeAllocator{candidates: []SpaceCandidate{
+		{SpaceID: "space-1", ZoneID: "zone-1"},
+		{SpaceID: "space-2", ZoneID: "zone-1"},
+	}})
+
+	first, err := svc.CreateTicket("site-1", "", "", "", "AAA111", "AAA111", "car", "")
+	if err != nil {
+		t.Fatalf("primer ingreso: %v", err)
+	}
+	if first.SpaceID == nil || *first.SpaceID != "space-1" {
+		t.Fatalf("espacio asignado = %v, quiere space-1", first.SpaceID)
+	}
+	// El asignador sigue reportando space-1 libre: el servicio debe saltarlo
+	// porque ya tiene un ticket abierto.
+	second, err := svc.CreateTicket("site-1", "", "", "", "BBB222", "BBB222", "car", "")
+	if err != nil {
+		t.Fatalf("segundo ingreso: %v", err)
+	}
+	if second.SpaceID == nil || *second.SpaceID != "space-2" {
+		t.Fatalf("espacio asignado = %v, quiere space-2", second.SpaceID)
+	}
+	if spaces.statuses["space-2"] != "occupied" {
+		t.Fatalf("estado de space-2 = %q, quiere occupied", spaces.statuses["space-2"])
+	}
+	_, err = svc.CreateTicket("site-1", "", "", "", "CCC333", "CCC333", "car", "")
+	if !apperr.Is(err, apperr.ErrConflict) {
+		t.Fatalf("err = %v, quiere CONFLICT por parqueo lleno", err)
+	}
+}

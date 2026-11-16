@@ -132,7 +132,7 @@ func Load() (*Config, error) {
 		JWTRefresh:         getEnvDuration("JWT_REFRESH", "72h"),
 		CORSAllowedOrigins: getEnvList("CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000", "http://localhost:8080", "https://localhost:3000"}),
 
-		SiteTimezone:           getEnv("SITE_TIMEZONE", "America/Bogota"),
+		SiteTimezone:           getEnv("SITE_TIMEZONE", "America/Costa_Rica"),
 		DefaultVehicleTypeCode: getEnv("DEFAULT_VEHICLE_TYPE_CODE", "car"),
 
 		ReadTimeout:  getEnvDuration("READ_TIMEOUT", "10s"),

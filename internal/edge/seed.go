@@ -61,7 +61,7 @@ func Seed(database *sql.DB, cfg *config.Config) (*SeedResult, error) {
 		return nil, err
 	}
 	if site == nil {
-		site, err = catalogSvc.CreateSite(cfg.SeedSiteName, cfg.SeedSiteCode, cfg.SiteTimezone, "COP", 50)
+		site, err = catalogSvc.CreateSite(cfg.SeedSiteName, cfg.SeedSiteCode, cfg.SiteTimezone, "CRC", 25)
 		if err != nil {
 			return nil, fmt.Errorf("crear sede: %w", err)
 		}
@@ -81,20 +81,19 @@ func Seed(database *sql.DB, cfg *config.Config) (*SeedResult, error) {
 		return nil, err
 	}
 
-	zone, err := ensureZone(zoneRepo, catalogSvc, site.ID)
+	zone, err := ensureZone(zoneRepo, catalogSvc, site.ID, "General - Carros", "car", 20)
 	if err != nil {
 		return nil, err
 	}
-	for i := 1; i <= 10; i++ {
-		code := fmt.Sprintf("A-%02d", i)
-		if existing, err := spaceRepo.ByCode(zone.ID, code); err == nil && existing != nil {
-			continue
-		} else if err != nil && !apperr.Is(err, apperr.ErrNotFound) {
-			return nil, err
-		}
-		if _, err := catalogSvc.CreateSpace(zone.ID, code, "car"); err != nil && !apperr.Is(err, apperr.ErrAlreadyExists) {
-			return nil, err
-		}
+	if err := ensureSpaces(spaceRepo, catalogSvc, zone.ID, "A", "car", 20); err != nil {
+		return nil, err
+	}
+	motoZone, err := ensureZone(zoneRepo, catalogSvc, site.ID, "Motos", "moto", 5)
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureSpaces(spaceRepo, catalogSvc, motoZone.ID, "M", "moto", 5); err != nil {
+		return nil, err
 	}
 
 	vehicleType, err := vtRepo.ByCode(cfg.DefaultVehicleTypeCode)
@@ -108,11 +107,25 @@ func Seed(database *sql.DB, cfg *config.Config) (*SeedResult, error) {
 		}
 	}
 
-	plan, err := ensureRatePlan(rateplansSvc, site.ID, vehicleType.ID)
+	plan, err := ensureRatePlan(rateplansSvc, site.ID, vehicleType.ID, "Estándar Carro", 100000)
 	if err != nil {
 		return nil, err
 	}
 	result.RatePlanID = plan.ID
+
+	motoType, err := vtRepo.ByCode("moto")
+	if err != nil && !apperr.Is(err, apperr.ErrNotFound) {
+		return nil, err
+	}
+	if motoType == nil {
+		motoType, err = catalogSvc.CreateVehicleType("Moto", "moto")
+		if err != nil {
+			return nil, err
+		}
+	}
+	if _, err := ensureRatePlan(rateplansSvc, site.ID, motoType.ID, "Estándar Moto", 50000); err != nil {
+		return nil, err
+	}
 
 	customer, err := ensureCustomer(customersRepo, customersSvc, "12345678", "Juan Pérez", "3001234567", "juan@email.com")
 	if err != nil {
@@ -134,7 +147,7 @@ func Seed(database *sql.DB, cfg *config.Config) (*SeedResult, error) {
 			VehicleID:  vehicle.ID,
 			SiteID:     site.ID,
 			PlanName:   "Mensual Carro",
-			PriceCents: 50000,
+			PriceCents: 3000000,
 			StartsAt:   now,
 			ExpiresAt:  now.AddDate(0, 1, 0),
 			Status:     subscriptions.SubActive,
@@ -180,30 +193,49 @@ func ensureUser(repo auth.Repository, svc *auth.Service, username, email, passwo
 	return created.ID, nil
 }
 
-func ensureZone(repo catalog.ZoneRepository, svc *catalog.Service, siteID string) (*catalog.Zone, error) {
+func ensureZone(repo catalog.ZoneRepository, svc *catalog.Service, siteID, name, typ string, capacity int) (*catalog.Zone, error) {
 	zones, err := repo.ListBySite(siteID)
 	if err != nil {
 		return nil, err
 	}
 	for _, z := range zones {
-		if z.Name == "General - Carros" {
+		if z.Name == name {
 			return z, nil
 		}
 	}
-	return svc.CreateZone(siteID, "General - Carros", "car", 30)
+	return svc.CreateZone(siteID, name, typ, capacity)
 }
 
-func ensureRatePlan(svc *rateplans.Service, siteID, typeID string) (*rateplans.RatePlan, error) {
+// ensureSpaces crea los espacios PREFIJO-01..PREFIJO-n de una zona si no existen.
+func ensureSpaces(repo catalog.SpaceRepository, svc *catalog.Service, zoneID, prefix, typ string, n int) error {
+	for i := 1; i <= n; i++ {
+		code := fmt.Sprintf("%s-%02d", prefix, i)
+		if existing, err := repo.ByCode(zoneID, code); err == nil && existing != nil {
+			continue
+		} else if err != nil && !apperr.Is(err, apperr.ErrNotFound) {
+			return err
+		}
+		if _, err := svc.CreateSpace(zoneID, code, typ); err != nil && !apperr.Is(err, apperr.ErrAlreadyExists) {
+			return err
+		}
+	}
+	return nil
+}
+
+// ensureRatePlan crea una tarifa por hora en colones (montos en céntimos):
+// 10 min de gracia, fracción de 60 min, mínimo una hora, tope diario de 12 horas
+// y ticket perdido equivalente a 15 horas.
+func ensureRatePlan(svc *rateplans.Service, siteID, typeID, name string, perHourCents int64) (*rateplans.RatePlan, error) {
 	plans, err := svc.ListBySite(siteID)
 	if err != nil {
 		return nil, err
 	}
 	for _, p := range plans {
-		if p.Name == "Estándar Carro" {
+		if p.Name == name {
 			return p, nil
 		}
 	}
-	return svc.Create(siteID, "Estándar Carro", "COP", 10, 60, 1000, 1500, 20000, 25000, &typeID)
+	return svc.Create(siteID, name, "CRC", 10, 60, perHourCents, perHourCents, perHourCents*12, perHourCents*15, &typeID)
 }
 
 func ensureCustomer(repo customers.Repository, svc *customers.Service, document, name, phone, email string) (*customers.Customer, error) {

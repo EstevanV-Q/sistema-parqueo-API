@@ -68,7 +68,7 @@ func main() {
 	siteID := insertIgnoreAndGet(db,
 		`INSERT IGNORE INTO sites (id, name, code, timezone, currency, capacity_total, is_active, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, TRUE, ?)`,
-		[]any{ids.StringToBin16(ids.UUIDv7String()), cfg.SeedSiteName, cfg.SeedSiteCode, cfg.SiteTimezone, "COP", 50, now},
+		[]any{ids.StringToBin16(ids.UUIDv7String()), cfg.SeedSiteName, cfg.SeedSiteCode, cfg.SiteTimezone, "CRC", 50, now},
 		`SELECT id FROM sites WHERE code = ?`, cfg.SeedSiteCode,
 	)
 	if siteID == "" {
@@ -152,7 +152,7 @@ func main() {
 		if _, err := db.Exec(`INSERT INTO rate_plans
 			(id, site_id, name, vehicle_type_id, currency, grace_minutes, minimum_cents, fraction_minutes, fraction_cents, daily_cap_cents, lost_ticket_cents, is_active, valid_from, created_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?)`,
-			ids.StringToBin16(rateID), siteBin, "Estándar Carro", vetypeBin, "COP", 10, 1000, 60, 1500, 20000, 25000, now, now); err != nil {
+			ids.StringToBin16(rateID), siteBin, "Estándar Carro", vetypeBin, "CRC", 10, 1000, 60, 1500, 20000, 25000, now, now); err != nil {
 			log.Printf("Error al crear tarifa: %v\n", err)
 		}
 	}
@@ -189,7 +189,7 @@ func main() {
 		// Registrar el pago correspondiente al abono
 		_, _ = db.Exec(`INSERT INTO payments
 			(id, subscription_id, amount_cents, currency, method, status, created_at, updated_at)
-			VALUES (?, ?, 50000, 'COP', 'card', 'completed', ?, ?)`,
+			VALUES (?, ?, 50000, 'CRC', 'card', 'completed', ?, ?)`,
 			ids.StringToBin16(ids.UUIDv7String()), ids.StringToBin16(subID), now, now)
 	}
 

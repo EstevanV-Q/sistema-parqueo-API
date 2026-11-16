@@ -43,6 +43,17 @@ type SpaceStatusUpdater interface {
 	UpdateStatus(spaceID, status string) error
 }
 
+// SpaceAllocator lista los espacios libres de una sede para un tipo de vehículo.
+type SpaceAllocator interface {
+	FreeSpaces(siteID, vehicleTypeID string) ([]SpaceCandidate, error)
+}
+
+// SpaceCandidate es un espacio libre propuesto para asignación automática.
+type SpaceCandidate struct {
+	SpaceID string
+	ZoneID  string
+}
+
 // VehicleTypeResolver resuelve el ID de un tipo de vehículo activo por código.
 type VehicleTypeResolver interface {
 	VehicleTypeIDByCode(code string) (string, error)

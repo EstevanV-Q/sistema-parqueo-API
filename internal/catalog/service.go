@@ -256,3 +256,41 @@ func (s *Service) UpdateVehicleType(id, name, code string, active bool) (*Vehicl
 func (s *Service) DeleteVehicleType(id string) error {
 	return s.vtRepo.Delete(id)
 }
+
+// ---- Asignación de espacios ----
+
+// FreeSpaces devuelve, en orden de zona y código, los espacios activos y libres
+// de una sede que aceptan el tipo de vehículo indicado. Si el tipo no se puede
+// resolver, se devuelven todos los espacios libres de la sede.
+func (s *Service) FreeSpaces(siteID, vehicleTypeID string) ([]SpaceRef, error) {
+	typeCode := ""
+	if vehicleTypeID != "" {
+		if vt, err := s.vtRepo.ByID(vehicleTypeID); err == nil && vt != nil {
+			typeCode = vt.Code
+		}
+	}
+	zones, err := s.zoneRepo.ListBySite(siteID)
+	if err != nil {
+		return nil, err
+	}
+	var out []SpaceRef
+	for _, z := range zones {
+		if !z.IsActive {
+			continue
+		}
+		spaces, err := s.spaceRepo.ListByZone(z.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, sp := range spaces {
+			if !sp.IsActive || sp.Status != "free" {
+				continue
+			}
+			if typeCode != "" && sp.Type != "" && sp.Type != typeCode {
+				continue
+			}
+			out = append(out, SpaceRef{SpaceID: sp.ID, ZoneID: z.ID})
+		}
+	}
+	return out, nil
+}
